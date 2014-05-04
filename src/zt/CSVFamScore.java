@@ -7,7 +7,6 @@ package zt;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
@@ -36,6 +35,7 @@ import org.apache.hadoop.mapred.TextInputFormat;
 import org.apache.hadoop.mapred.TextOutputFormat;
 import org.apache.hadoop.mapred.lib.IdentityMapper;
 
+import util.StringConvert;
 import Entity.PairIntWritable;
 
 public class CSVFamScore {
@@ -45,46 +45,17 @@ public class CSVFamScore {
 	public static class CSVMapper extends MapReduceBase implements
 			Mapper<LongWritable, Text, PairIntWritable, PairIntWritable> {
 		private int specified;
-		private int[] D;
-		private int[] given;
 		private int[] possible;
-
-		private int encodeGiven(int[] l) {
-			int res = 0;
-			for (int i : given) {
-				int t = l[i];
-				if (t == INVALID_STATE)
-					return -1;
-				res = res * D[i] + t;
-			}
-			return res;
-		}
-		private int[] setArray(int length,String values){
-			int[] arr=new int[length];
-			if(length!=0){
-				int p=0;
-				for(String s : values.split(",")){
-					arr[p++]=Integer.parseInt(s);
-				}
-			}
-			return arr;
-		}
+		private CSVStructure structure;
 
 		@Override
 		public void configure(JobConf job) {
 			super.configure(job);
 			//csv configure
-			D=setArray(job.getInt("csvfamscore.csv.num", -1),job.get("csvfamscore.csv.d"));
-//			System.out.println("D: "+D.length+"\t"+D[0]);
-			//given part
-			given=setArray(job.getInt("csvfamscore.given.num", -1),job.get("csvfamscore.given.value"));
-			Arrays.sort(given);
-//			System.out.println("given: "+given.length+"\t"+given[0]);
-			//possible parents to test
-			possible=setArray(job.getInt("csvfamscore.possible.num", -1),job.get("csvfamscore.possible.value"));
-			Arrays.sort(possible);
-//			System.out.println("possible: "+possible.length+"\t"+possible[0]);
-			//specified
+			int[] D=StringConvert.setArray(job.getInt("csvfamscore.csv.num", -1),job.get("csvfamscore.csv.d"));
+			int[] given=StringConvert.setArray(job.getInt("csvfamscore.given.num", -1),job.get("csvfamscore.given.value"));
+			structure=new CSVStructure(D,given);
+			possible=StringConvert.setArray(job.getInt("csvfamscore.possible.num", -1),job.get("csvfamscore.possible.value"));
 			specified = job.getInt("csvfamscore.specified", -1);
 		}
 
@@ -96,12 +67,12 @@ public class CSVFamScore {
 			for(int i=0;i<strs.length;i++)
 				nums[i]=Integer.parseInt(strs[i]);
 			int oBaseKey,oValue;
-			if((oValue=nums[specified])==INVALID_STATE || (oBaseKey=encodeGiven(nums))==INVALID_STATE)
+			if((oValue=nums[specified])==INVALID_STATE || (oBaseKey=structure.encodeGiven(nums))==INVALID_STATE)
 				return;	//get the basic parents' values code
 			for(int offset : possible){
 				//update parents' values code with "offset" at the end (oBaseKey*D[offset]+nums[offset])
 				if(nums[offset]!=INVALID_STATE)
-					output.collect(new PairIntWritable(offset,oBaseKey*D[offset]+nums[offset]),
+					output.collect(new PairIntWritable(offset,oBaseKey*structure.getD(offset)+nums[offset]),
 							new PairIntWritable(oValue,1));
 			}
 		}
@@ -156,20 +127,19 @@ public class CSVFamScore {
 		public void reduce(PairIntWritable key, Iterator<PairIntWritable> values,
 				OutputCollector<IntWritable, DoubleWritable> output, Reporter reporter) throws IOException {
 			int[] res = new int[spfSize];
+			int sum=0;
 			while (values.hasNext()) {
 				PairIntWritable p = values.next();
 				// System.out.println(v);
 				res[p.getV1()] += p.getV2();
+				sum += p.getV2();
 			}
-			int sum = 0;
-			double score = 0.0;
+			double score = Gamma.logGamma(1.0 + sum);
 			for (int i : res) {
 				if(i==0)
 					continue;
-				sum += i;
 				score += Gamma.logGamma(1.0 + i);
 			}
-			score -= Gamma.logGamma(1.0 + sum);
 			output.collect(new IntWritable(key.getV1()), new DoubleWritable(score));
 		}
 	}
