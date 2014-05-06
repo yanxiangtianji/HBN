@@ -77,6 +77,10 @@ public class CSVFamScoreParam implements Cloneable{
 		return res;
 	}
 	
+	public void movePossible2Given(int p){
+		removePossible(p);
+		addGiven(p);
+	}
 	public void addGiven(int p){
 		given.add(p);
 	}

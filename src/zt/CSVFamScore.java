@@ -6,7 +6,9 @@
 package zt;
 
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
@@ -39,7 +41,6 @@ import util.StringConvert;
 import Entity.PairIntWritable;
 
 public class CSVFamScore {
-	private static int INVALID_STATE = -1;
 
 	// Mapper
 	public static class CSVMapper extends MapReduceBase implements
@@ -54,8 +55,10 @@ public class CSVFamScore {
 			//csv configure
 			int[] D=StringConvert.setArray(job.getInt("csvfamscore.csv.num", -1),job.get("csvfamscore.csv.d"));
 			int[] given=StringConvert.setArray(job.getInt("csvfamscore.given.num", -1),job.get("csvfamscore.given.value"));
+			Arrays.sort(given);
 			structure=new CSVStructure(D,given);
 			possible=StringConvert.setArray(job.getInt("csvfamscore.possible.num", -1),job.get("csvfamscore.possible.value"));
+			Arrays.sort(possible);
 			specified = job.getInt("csvfamscore.specified", -1);
 		}
 
@@ -67,11 +70,12 @@ public class CSVFamScore {
 			for(int i=0;i<strs.length;i++)
 				nums[i]=Integer.parseInt(strs[i]);
 			int oBaseKey,oValue;
-			if((oValue=nums[specified])==INVALID_STATE || (oBaseKey=structure.encodeGiven(nums))==INVALID_STATE)
+			if((oValue=nums[specified])==CSVCommon.INVALID_STATE
+					|| (oBaseKey=structure.encodeGiven(nums))==CSVCommon.INVALID_STATE)
 				return;	//get the basic parents' values code
 			for(int offset : possible){
 				//update parents' values code with "offset" at the end (oBaseKey*D[offset]+nums[offset])
-				if(nums[offset]!=INVALID_STATE)
+				if(nums[offset]!=CSVCommon.INVALID_STATE)
 					output.collect(new PairIntWritable(offset,oBaseKey*structure.getD(offset)+nums[offset]),
 							new PairIntWritable(oValue,1));
 			}
@@ -189,14 +193,16 @@ public class CSVFamScore {
 	private void set2JobIOPath(JobConf conf1,JobConf conf2){
 		int rand=Math.abs(new Random().nextInt());
 //		tempPath="TEMP_FAMSCORE_"+System.currentTimeMillis()+"_"+rand;
-		tempPath=param.getInput().replaceAll("[^/]+$", "TEMP_FAMSCORE_"+System.currentTimeMillis()+"_"+rand);
+		SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMdd-HHmmss");
+		String timeString = formatter.format(System.currentTimeMillis());
+		tempPath=param.getInput().replaceAll("[^/]+$", "TEMP_FAMSCORE_"+timeString+"_"+rand);
 		Path p=new Path(tempPath);
 		//job1
 		FileInputFormat.setInputPaths(conf1, new Path(param.getInput()));
 		FileOutputFormat.setOutputPath(conf1, p);
 		//job2
 		FileInputFormat.setInputPaths(conf2, p);
-		FileOutputFormat.setOutputPath(conf2, new Path(param.getOutput()));		
+		FileOutputFormat.setOutputPath(conf2, new Path(param.getOutput()));
 	}
 	private void set2JobName(JobConf conf1,JobConf conf2){
 		int p=param.getSpecified();

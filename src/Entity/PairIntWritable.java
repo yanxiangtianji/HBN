@@ -40,7 +40,7 @@ public class PairIntWritable implements WritableComparable<PairIntWritable> {
 
 	@Override
 	public int hashCode() {
-		return (v1 << 3) ^ v2;
+		return (v1 * 7) ^ v2;
 	}
 
 	@Override
