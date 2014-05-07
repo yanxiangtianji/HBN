@@ -9,7 +9,8 @@ public class Node implements Comparator<Node>{
 	private int nState;
 	private ArrayList<Node> parents=new ArrayList<Node>();
 	private float[][] CDT;
-	private float[] marginalD;
+	private float[] defaultMD;
+	private float[] cacheMD;
 	
 	//constructor
 	Node(String name,int nState){
@@ -56,29 +57,150 @@ public class Node implements Comparator<Node>{
 //		CDT=new float[num][nState];
 		CDT=new float[num][];
 	}
+	public int getnCDT(){
+		return CDT.length;
+	}
 	public void setCDT(int offset, float[] cd) throws Exception{
 		if(cd.length==nState)
 			CDT[offset]=cd;
 		else{
-			throw new Exception("Length of argmuent("+cd.length+") do not fit node requirement("+nState+")");
+			throw new Exception("Length of argmuent("+cd.length+
+					") do not fit number of state of this node("+nState+")");
+		}
+	}
+	public void setCDT(int[] parentsValues, float[] cd) throws Exception{
+		if(parentsValues.length==parents.size()){
+			setCDT(encodeParent(parentsValues),cd);
+		}else{
+			throw new Exception("Length of parent values("+parentsValues.length+
+					") do not fit number of parent nodes("+parents.size()+")");
 		}
 	}
 	public float[] getCDT(int offset){
-		return CDT[offset];
+		if(CDT[offset]!=null)
+			return CDT[offset];
+		return defaultMD;
+//		return CDT[offset]=defaultMD;
 	}
-	public void setCDT(int[] parentValues, float[] cd) throws Exception{
-		if(cd.length==nState)
-			CDT[encodeParent(parentValues)]=cd;
-		else{
-			throw new Exception("Length of argmuent("+cd.length+") do not fit node requirement("+nState+")");
+	public float[] getCDT(int[] parentsValues) throws Exception{
+		if(parentsValues.length!=parents.size()){
+			throw new Exception("Length of parent values("+parentsValues.length+
+					") do not fit number of parent nodes("+parents.size()+")");
+		}
+		int code=encodeParent(parentsValues);
+		return getCDT(code);
+	}
+	
+	//md
+	public void setCacheMD(int state){
+		float[] r=new float[nState];
+		r[state]=1.0f;
+		setCacheMD(r);
+	}
+	public float[] getCacheMD(){
+		if(cacheMD==null)
+			try {
+				cacheMD=calMD();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		return cacheMD;
+	}
+	private float[] calMD() throws Exception{
+		float[][] parMD=new float[parents.size()][];
+		int[] parID=new int[parents.size()];
+		int[] numOfZero=new int[parents.size()];
+		for(int i=0;i<parents.size();i++){
+			parMD[i]=parents.get(i).getCacheMD();
+			parID[i]=i;
+			for(float f : parMD[i])
+				if(f==0.0f)
+					++numOfZero[i];
+		}
+		//To speed up the calculation, sort by the number of 0.0 from more to less.
+		sort3By1(numOfZero,parID,parMD);
+		numOfZero=null;
+		//P(R=Rx,A=A1,B=B1,C=C1) = P(R=Rx|A=A1,B=B1,C=C1)*P(A=A1)*P(B=B1)*P(C=C1)
+		//P(R=Rx) = SUM{ P(R=Rx|cond)*P(cond) } for all cond
+		float[] res=new float[nState];
+		int[] cond_temp=new int[parents.size()];
+		_dfs_accumulate_MD(res,parMD,parID,0,1.0f,cond_temp);
+		return res;
+	}
+	private void _dfs_accumulate_MD(float[] res, float[][] parMD, int[] parID,
+			int pos, float pcond, int[] cond) throws Exception{
+		if(pcond==0.0){
+			return;
+		}else if(pos>=parents.size()){
+			float[] cd=getCDT(cond);
+			for(int i=0;i<res.length;i++)
+				res[i]+=pcond*cd[i];
+			return;
+		}
+		int cur_par_nState=parents.get(parID[pos]).getnState();
+		float[] cur_par_MD=parMD[parID[pos]];
+		for(int st=0;st<cur_par_nState;++st){
+			cond[pos]=st;
+			_dfs_accumulate_MD(res,parMD,parID,pos+1,pcond*cur_par_MD[st],cond);
 		}
 	}
-	public float[] getCDT(int[] parentsValues){
-		int code=encodeParent(parentsValues);
-		if(CDT[code]!=null)
-			return CDT[code];
-		return CDT[code]=marginalD;
+	//sort 3 arrays by the first one (from big to small)
+	private static void sort3By1(int[] bench, int[] load1, float[][] load2){
+		for(int i=1;i<bench.length;++i){
+			int key=bench[i];
+			int t1=load1[i];
+			float[] t2=load2[i];
+			int j=i-1;
+			for(;j>=0 && bench[j]<key;--j){
+				bench[j+1]=bench[j];	load1[j+1]=load1[j];	load2[j+1]=load2[j];
+			}
+			bench[j+1]=key;	load1[j+1]=t1;	load2[j+1]=t2;
+		}
 	}
+	
+//	public static void main(String[] args){
+//		int len=10;
+//		int[] bench=new int[len];
+//		int[] load1=new int[len];
+//		float[][] load2=new float[len][];
+//		Random r=new Random();
+//		for(int i=0;i<len;i++){
+//			bench[i]=10+r.nextInt(90);
+//			load1[i]=i;
+//		}
+//		for(int i:bench)
+//			System.out.print(i+" ");
+//		System.out.print("\n");
+//		for(int i:load1)
+//			System.out.print(" "+i+" ");
+//		System.out.print("\n");
+//		sort3By1(bench,load1,load2);
+//		for(int i:bench)
+//			System.out.print(i+" ");
+//		System.out.print("\n");
+//		for(int i:load1)
+//			System.out.print(" "+i+" ");
+//	}
+	
+	//state judgment
+	public int getStateFromMD(){
+		return tellStateFromDistribution(getCacheMD());
+	}
+	public static int tellStateFromDistribution(float[] dis){
+		if(dis==null){
+			return -1;
+		}
+		int r=-1;
+		float max=-Float.MAX_VALUE;
+		for(int i=0;i<dis.length;i++){
+			if(dis[i]>max){
+				max=dis[i];
+				r=i;
+			}
+		}
+		return r;
+	}
+	
 
 	@Override
 	public int hashCode() {
@@ -108,7 +230,7 @@ public class Node implements Comparator<Node>{
 		return o1.name.compareTo(o2.name);
 	}
 	
-	//Getters & Setters:
+	//Trivial Getters & Setters:
 	public String getName() {
 		return name;
 	}
@@ -147,11 +269,14 @@ public class Node implements Comparator<Node>{
 	public void setCDT(float[][] cDT) {
 		CDT = cDT;
 	}
-	public float[] getMarginalD() {
-		return marginalD;
+	public float[] getDefaultMD() {
+		return defaultMD;
 	}
-	public void setMarginalD(float[] marginalD) {
-		this.marginalD = marginalD;
+	public void setDefaultMD(float[] defaultMD) {
+		this.defaultMD = defaultMD;
+	}
+	public void setCacheMD(float[] cacheMD) {
+		this.cacheMD = cacheMD;
 	}
 
 }

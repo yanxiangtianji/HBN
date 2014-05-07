@@ -1,5 +1,10 @@
 package hbn;
 
+import hadoop.CSVCDParam;
+import hadoop.CSVFamScoreParam;
+import hadoop.job.CSVConditionalDistribution;
+import hadoop.job.CSVFamScore;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -8,6 +13,8 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Scanner;
 
@@ -17,10 +24,6 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 
 import util.PartFileFilter;
-import zt.CSVCDParam;
-import zt.CSVConditionalDistribution;
-import zt.CSVFamScore;
-import zt.CSVFamScoreParam;
 import Entity.Pair;
 
 public class Network {
@@ -35,7 +38,7 @@ public class Network {
 	private FileSystem hdfs;
 	
 	//initial (generate node, arrange by layer)
-	Network(FileSystem hdfs, String nodeFile, String knowledgeFile) throws IOException{
+	public Network(FileSystem hdfs, String nodeFile, String knowledgeFile) throws IOException{
 		this.hdfs=hdfs;
 		Scanner s_n=new Scanner(hdfs.open(new Path(nodeFile)));
 		N=s_n.nextInt();
@@ -142,6 +145,7 @@ public class Network {
 		}
 		//start working:
 		for(int layer=1;layer<nodeByLayer.size();layer++){
+//		for(int layer=1;layer<2;layer++){
 			System.out.println("Processing layer "+layer+"...");
 			ArrayList<Integer> thisLayer=nodeByLayer.get(layer);
 			param.setPossible(possibleParentsInCSV);
@@ -158,10 +162,9 @@ public class Network {
 	private void greedyLearningOne(Node specifiedNode, CSVFamScoreParam param, String baseOutput,
 			double threshold) throws Exception{
 //		Node specifiedNode=nodes.get(csv2off.get(specified));
-		int specified=name2off.get(specifiedNode.getName());
+		int specified=map2csvOffset(specifiedNode);
 		CSVFamScoreParam p=param.clone();
 		p.setSpecified(specified);
-//		ArrayList<Integer> given=new ArrayList<Integer>();
 		baseOutput=baseOutput+"/famscore_"+specified;
 		Path outputPath=new Path(baseOutput);
 		if(hdfs.exists(outputPath))
@@ -172,10 +175,10 @@ public class Network {
 		CSVFamScore f=new CSVFamScore();
 		double last=-Double.MAX_VALUE, current=-Double.MAX_VALUE;
 		int maxIteration=param.getPossible().size();
-		while(maxIteration-->0 && 
+		int iteration=0;
+		while(iteration++ < maxIteration && 
 				(current==-Double.MAX_VALUE || current-last>=threshold)){
 			//calculate the famscores
-//			p.setGiven(given);
 			String output=baseOutput+p.getGiven().toString().replaceAll("[\\[\\] ]", "");
 			p.setOutput(output);
 			f.configure(p);
@@ -188,15 +191,13 @@ public class Network {
 			int parentInHBN=csv2off.get(parentInCSV);
 			p.movePossible2Given(parentInCSV);
 			specifiedNode.addParent(nodes.get(parentInHBN));
+			//show status
+			System.out.println("In loop "+iteration+", parent "+parentInCSV+"is choosen.");
+			System.out.println("FamScore improvement is "+ (current-last));
 		}
 	}
-	/**
-	 * The returned node id is the offset of the node in the csv file. 
-	 * 
-	 * @param output -> the folder to scan
-	 * @return the node id with largest FamScore
-	 * @throws IOException
-	 */
+
+	//find the node offset in csv file with largest FamScore in Hadoop output folder "output"
 	private Pair<Integer,Double> findLargestFamScore(String output) throws IOException{
 		int res=-1;
 		double largest=-Double.MAX_VALUE;
@@ -276,7 +277,7 @@ public class Network {
 					if(n.getParents().size()!=0)
 						n.setCDT(off, arr);	//for normal nodes, set conditional distribution table entry
 					else
-						n.setMarginalD(arr);	//for layer-0 nodes, set marginal distribution
+						n.setDefaultMD(arr);	//for layer-0 nodes, set marginal distribution
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
@@ -293,7 +294,7 @@ public class Network {
 			float[] md=new float[countMarginal[i].length];
 			for(int j=0;j<countMarginal[i].length;++j)
 				md[j]=countMarginal[i][j]/(float)sum;
-			nodes.get(i).setMarginalD(md);
+			nodes.get(i).setDefaultMD(md);
 		}//end for md
 	}
 	
@@ -303,22 +304,46 @@ public class Network {
 	 * @param structureFile
 	 * @param withDistribution
 	 * @param withMarginal
-	 * @throws IOException
+	 * @throws Exception 
 	 */
-	public void loadStructure(String structureFile, boolean withDistribution, boolean withMarginal) throws IOException{
+	public void loadStructure(String structureFile, boolean withDistribution, boolean withMarginal) throws Exception{
 		Scanner scn=new Scanner(new BufferedReader(new InputStreamReader(hdfs.open(new Path(structureFile)))));
 		for(int i=0;i<nodes.size();i++){
 			Node n=name2node.get(scn.next());
 			int numParent=scn.nextInt();
+			//marginal:
+			if(withMarginal){
+				float[] md=new float[n.getnState()];
+				for(int j=0;j<n.getnState();++j)
+					md[j]=scn.nextFloat();
+				n.setDefaultMD(md);
+			}
+			//parents:
 			for(int j=0;j<numParent;j++){
 				String parent=scn.next();
 				n.addParent(name2node.get(parent));
+			}
+			//cdt:
+			if(withDistribution){
+				n.initCDT();
+				int nCDT=scn.nextInt();
+					while(nCDT-->=0){
+					int offset=scn.nextInt();
+					float[] cpd=new float[n.getnState()];
+					for(int j=0;j<n.getnState();++j)
+						cpd[j]=scn.nextFloat();
+					n.setCDT(offset, cpd);
+				}
 			}
 		}
 		scn.close();
 	}
 	
-	//output structures
+	/**
+	 * Output brief structure using node name
+	 * @param structureFile
+	 * @throws IOException
+	 */
 	public void outputBriefStructureWithName(String structureFile) throws IOException{
 		System.out.println("Start to output brief structure via node name.");
 		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));		
@@ -336,6 +361,11 @@ public class Network {
 		}
 		pw.close();
 	}
+	/**
+	 * Output brief structure using node offset in the csv file
+	 * @param structureFile
+	 * @throws IOException
+	 */
 	public void outputBriefStructureWithCSVoff(String structureFile) throws IOException{
 		System.out.println("Start to output brief structure via offset in the csv file.");
 		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));		
@@ -353,6 +383,12 @@ public class Network {
 		}
 		pw.close();
 	}
+	/**
+	 * Output complete structure (with conditional distribution table (CDT)) using node name.
+	 * @param structureFile
+	 * @param withMarginal;	whether to output the marginal distribution of each node before the parent information
+	 * @throws IOException
+	 */
 	public void outputStructure(String structureFile, boolean withMarginal) throws IOException{
 		System.out.println("Start to output full structure via node name, "
 				+(withMarginal?"with":"with out")+" marginal distribution.");
@@ -360,15 +396,17 @@ public class Network {
 		for(Node n: nodes){
 			ArrayList<Node> parents=n.getParents();
 			pw.println(n.getName()+" "+parents.size());
+			//marginal distribution:
 			if(withMarginal){
 				StringBuilder sb=new StringBuilder();
-				for(float f : n.getMarginalD()){
+				for(float f : n.getDefaultMD()){
 					sb.append(f);
 					sb.append(" ");
 				}
 				sb.delete(sb.length()-1, sb.length());	//remove the last " "
 				pw.println(sb.toString());
 			}
+			//parents:
 			if(parents.size()==0)
 				continue;	//no parents
 			pw.print(parents.get(0).getName());
@@ -377,19 +415,80 @@ public class Network {
 				pw.print(parents.get(i).getName());
 			}
 			pw.print("\n");
-			//output distribution
-			for(float[] md : n.getCDT()){
-				pw.print(md[0]);
-				for(int i=1;i<md.length;++i){
+			//output distribution:
+			int nCDT=n.getnCDT();
+			pw.println(nCDT);
+			for(int i=0;i<nCDT;++i){
+				float[] md=n.getCDT(i);
+				if(md==null)	//skip those entry without a cpd
+					continue;
+				pw.print(i);
+				for(float f : md){
 					pw.print(" ");
-					pw.print(md[i]);
+					pw.print(f);
 				}
 				pw.print("\n");
 			}
 		}
 		pw.close();		
 	}
-
+	
+	
+	/**
+	 * Predict the queried nodes' states based on given states.
+	 * @param given;	the map between given nodes and their states
+	 * @param query;	the list of queried nodes' name
+	 * @return
+	 */
+	public Map<String,Integer> predict(Map<String,Integer> given, List<String> query){
+		//get distributions
+		Map<String,float[]> dis=predictDistribution(given, query);
+		//get the states from the distributions
+		HashMap<String,Integer> res=new HashMap<String,Integer>();
+		for(Entry<String,float[]> entry : dis.entrySet()){
+			res.put(entry.getKey(), Node.tellStateFromDistribution(entry.getValue()));
+		}
+		return res;
+	}
+	/**
+	 * Predict the queried nodes' distribution based on given states.
+	 * @param given
+	 * @param query
+	 * @return
+	 */
+	public Map<String,float[]> predictDistribution(Map<String,Integer> given, List<String> query){
+		HashMap<String,float[]> res=new HashMap<String,float[]>();
+		if(query.size()==0)
+			return res;
+		//set given md
+		for(Entry<String,Integer> entry : given.entrySet()){
+			Node n=name2node.get(entry.getKey());
+			n.setCacheMD(entry.getValue().intValue());
+		}
+		//get queried md
+		for(String name : query){
+			Node n=name2node.get(name);
+			n.setCacheMD(null);
+			res.put(name, n.getCacheMD());
+		}
+		return res;
+	}
+	/**
+	 * Predict all the other nodes' states based on given states.
+	 * @param given;	the map between given nodes and their states
+	 * @return
+	 */
+	public Map<String,Integer> predict(Map<String,Integer> given){
+		List<String> query=new ArrayList<String>();
+		for(Node n : nodes){
+			String name=n.getName();
+			if(!given.containsKey(name))
+				query.add(name);
+		}
+		return predict(given,query);
+	}
+	
+	
 	//Main:
 	public static void main(String[] args) throws Exception{
 		FileSystem hdfs=FileSystem.get(new Configuration());
@@ -411,15 +510,25 @@ public class Network {
 		//run:
 		Network net=new Network(hdfs,properties.get("nodeFile"), properties.get("knowledgeFile"));
 		net.setCSVFormat(properties.get("csvHeadFile"),properties.get("csvConfFile"));
-		net.greedyLearning(properties.get("csvFolder"),properties.get("csvConfFile"),
-				properties.get("famScoreFolder"),500.0);
+//		net.greedyLearning(properties.get("csvFolder"),properties.get("csvConfFile"),
+//				properties.get("famScoreFolder"),500.0);
 //		net.loadStructure(properties.get("structureBriefFile"), false, false);
+		net.loadStructure(properties.get("structureFile"), true, true);
 		
-		net.outputBriefStructureWithName(properties.get("structureBriefFile"));
-		net.outputBriefStructureWithCSVoff(properties.get("structureCSVBriefFile"));
-		net.calDistribution(properties.get("csvFolder"), properties.get("structureCSVBriefFile"),
-				properties.get("csvConfFile"), properties.get("distributionFolder"));
-		net.outputStructure(properties.get("structureFile"),true);
+//		net.outputBriefStructureWithName(properties.get("structureBriefFile"));
+//		net.outputBriefStructureWithCSVoff(properties.get("structureCSVBriefFile"));
+//		net.calDistribution(properties.get("csvFolder"), properties.get("structureCSVBriefFile"),
+//				properties.get("csvConfFile"), properties.get("distributionFolder"));
+//		net.outputStructure(properties.get("structureFile"),true);
+		
+		HashMap<String,Integer> given=new HashMap<String,Integer>();
+		given.put("A1", 1);
+		given.put("A2", 3);
+		given.put("A3", 0);
+		Map<String,Integer> res=net.predict(given);
+		for(Entry<String,Integer> entry : res.entrySet()){
+			System.out.println(entry.getKey()+"\t"+entry.getValue());
+		}
 		
 		System.out.println("Finished.");
 	}
