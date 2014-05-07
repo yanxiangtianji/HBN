@@ -1,4 +1,4 @@
-package zt;
+package hadoop;
 
 public class CSVStructure {
 	private int[] D;
