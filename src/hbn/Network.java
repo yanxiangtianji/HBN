@@ -308,6 +308,7 @@ public class Network {
 		for(int i=0;i<nodes.size();i++){
 			countMarginal[i]=new int[nodes.get(i).getnState()];
 		}
+		//update for cdt
 		for(Path file : listedPaths){
 			BufferedReader br=new BufferedReader(new InputStreamReader(hdfs.open(file)));
 			String temp=null;
@@ -329,18 +330,15 @@ public class Network {
 				try {
 					if(n.getParents().size()!=0)
 						n.setCDT(off, arr, sum);	//for normal nodes, set conditional distribution table entry
-					else
-						n.setDefaultMD(arr);	//for layer-0 nodes, set marginal distribution
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}
 			br.close();
-		}//end for cdt (and md for layer-0 nodes)
+		}//end for cdt
+		//update md
 		for(int i=0;i<countMarginal.length;++i){
 			Node n=nodes.get(i);
-			if(n.getParents().size()==0)
-				continue;
 			int sum=0;
 			for(int j=0;j<countMarginal[i].length;++j)
 				sum+=countMarginal[i][j];
