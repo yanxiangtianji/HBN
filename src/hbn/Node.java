@@ -7,9 +7,13 @@ public class Node implements Comparator<Node>{
 	private String name;
 	private int layer;
 	private int nState;
+	
 	private ArrayList<Node> parents=new ArrayList<Node>();
 	private float[][] CDT;
+	private int[] occurrenceCDT;	//the number of occurrence of each CDT entry; used for online updating
 	private float[] defaultMD;
+	private int occurrenceAll;
+	
 	private float[] cacheMD;
 	
 	//constructor
@@ -20,6 +24,11 @@ public class Node implements Comparator<Node>{
 		this.name=name;
 		this.nState=nState;
 		this.layer=layer;
+	}
+	Node(Node n){
+		name=n.name;
+		layer=n.layer;
+		nState=n.nState;
 	}
 	
 	//parents
@@ -56,40 +65,66 @@ public class Node implements Comparator<Node>{
 		}
 //		CDT=new float[num][nState];
 		CDT=new float[num][];
+		occurrenceCDT=new int[num];
 	}
 	public int getnCDT(){
 		return CDT.length;
 	}
-	public void setCDT(int offset, float[] cd) throws Exception{
-		if(cd.length==nState)
+	public void setCDT(int offset, float[] cd, int occurrence) throws Exception{
+		if(cd.length==nState){
 			CDT[offset]=cd;
-		else{
+			occurrenceCDT[offset]=occurrence;
+		}else{
 			throw new Exception("Length of argmuent("+cd.length+
 					") do not fit number of state of this node("+nState+")");
 		}
 	}
-	public void setCDT(int[] parentsValues, float[] cd) throws Exception{
-		if(parentsValues.length==parents.size()){
-			setCDT(encodeParent(parentsValues),cd);
-		}else{
-			throw new Exception("Length of parent values("+parentsValues.length+
-					") do not fit number of parent nodes("+parents.size()+")");
-		}
+	public void setCDT(int[] parentsValues, float[] cd, int occurrence) throws Exception{
+		checkParentsValuesLength(parentsValues);
+		setCDT(encodeParent(parentsValues),cd,occurrence);
 	}
 	public float[] getCDT(int offset){
 		if(CDT[offset]!=null)
 			return CDT[offset];
-		return defaultMD;
-//		return CDT[offset]=defaultMD;
+//		return defaultMD;
+		return CDT[offset]=defaultMD;
 	}
 	public float[] getCDT(int[] parentsValues) throws Exception{
-		if(parentsValues.length!=parents.size()){
-			throw new Exception("Length of parent values("+parentsValues.length+
-					") do not fit number of parent nodes("+parents.size()+")");
-		}
+		checkParentsValuesLength(parentsValues);
 		int code=encodeParent(parentsValues);
 		return getCDT(code);
 	}
+	public int getOccurrenceCDT(int offset){
+		return occurrenceCDT[offset];
+	}
+	public int getOccurrenceCDT(int[] parentsValues) throws Exception{
+		checkParentsValuesLength(parentsValues);
+		int code=encodeParent(parentsValues);
+		return getOccurrenceCDT(code);
+	}
+	public void setOccurrenceCDT(int offset, int occurrence){
+		occurrenceCDT[offset]=occurrence;
+	}
+	public void setOccurrenceCDT(int[] parentsValues, int occurrence) throws Exception{
+		checkParentsValuesLength(parentsValues);
+		int code=encodeParent(parentsValues);
+		setOccurrenceCDT(code,occurrence);
+	}
+	
+	//helper checker
+	private void checkParentsValuesLength(int[] parentsValues) throws Exception{
+		if(parentsValues.length!=parents.size()){
+			throw new Exception("Length of parent values("+parentsValues.length+
+					") do not fit number of parent nodes("+parents.size()+")");
+		}		
+	}
+	
+	//default md
+	public void setDefaultMD(float[] defaultMD, int occurrence) {
+		setDefaultMD(defaultMD);
+		setOccurrenceAll(occurrence);
+	}
+
 	
 	//md
 	public void setCacheMD(int state){
@@ -237,10 +272,6 @@ public class Node implements Comparator<Node>{
 		return name;
 	}
 
-	public void setName(String name) {
-		this.name = name;
-	}
-
 	public int getLayer() {
 		return layer;
 	}
@@ -251,10 +282,6 @@ public class Node implements Comparator<Node>{
 
 	public int getnState() {
 		return nState;
-	}
-
-	public void setnState(int nState) {
-		this.nState = nState;
 	}
 
 	public ArrayList<Node> getParents() {
@@ -271,11 +298,23 @@ public class Node implements Comparator<Node>{
 	public void setCDT(float[][] cDT) {
 		CDT = cDT;
 	}
+	public int[] getOccurrenceCDT() {
+		return occurrenceCDT;
+	}
+	public void setOccurrenceCDT(int[] occurenceCDT) {
+		this.occurrenceCDT = occurenceCDT;
+	}
 	public float[] getDefaultMD() {
 		return defaultMD;
 	}
 	public void setDefaultMD(float[] defaultMD) {
 		this.defaultMD = defaultMD;
+	}
+	public int getOccurrenceAll() {
+		return occurrenceAll;
+	}
+	public void setOccurrenceAll(int occurrenceAll) {
+		this.occurrenceAll = occurrenceAll;
 	}
 	public void setCacheMD(float[] cacheMD) {
 		this.cacheMD = cacheMD;

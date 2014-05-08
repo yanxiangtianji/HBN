@@ -18,7 +18,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Scanner;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
@@ -27,7 +26,7 @@ import util.PartFileFilter;
 import Entity.Pair;
 
 public class Network {
-	private int N;
+//	private int N;
 	private ArrayList<Node> nodes=new ArrayList<Node>();
 	private HashMap<String,Node> name2node=new HashMap<String,Node>();
 	private HashMap<String,Integer> name2off=new HashMap<String,Integer>();
@@ -41,7 +40,7 @@ public class Network {
 	public Network(FileSystem hdfs, String nodeFile, String knowledgeFile) throws IOException{
 		this.hdfs=hdfs;
 		Scanner s_n=new Scanner(hdfs.open(new Path(nodeFile)));
-		N=s_n.nextInt();
+		int N=s_n.nextInt();
 		String[] names=new String[N];
 		int[] nStates=new int[N];
 		int[] layers=new int[N];
@@ -66,7 +65,7 @@ public class Network {
 	}
 	//initial (arrange by layer)
 	private void setNodeByLayer(){	//arrange nodes on each layer
-		for(int i=0;i<N;i++){
+		for(int i=0;i<nodes.size();i++){
 			int layer=nodes.get(i).getLayer();
 			while(nodeByLayer.size()<=layer){	//format the raw container
 				nodeByLayer.add(new ArrayList<Integer>());
@@ -74,7 +73,50 @@ public class Network {
 			nodeByLayer.get(layer).add(i);
 		}
 	}
-	
+	/**
+	 * Copy construct a new network as the given reference network. 
+	 * But the new network is memory independent to the old one, i.e. changing one network cannot affect the other one.
+	 * 
+	 * @param net
+	 * @param copyStructure	whether to copy the parents relationship of each node
+	 * @param copyDistribution	whether to copy the CDT and MD of each node. Matters when copyStructure is true.
+	 * @throws IOException
+	 */
+	@SuppressWarnings("unchecked")
+	public Network(Network net, boolean copyStructure, boolean copyDistribution) throws IOException{
+		this.hdfs=net.hdfs;
+//		N=net.N;
+		//nodes:
+		nodes=new ArrayList<Node>();
+		HashMap<Node,Node> nodeMapping=new HashMap<Node,Node>();
+		for(Node n:nodes){
+			Node newn=new Node(n);
+			nodes.add(newn);
+			nodeMapping.put(n, newn);
+		}		
+		//name2off:
+		name2off=(HashMap<String, Integer>) net.name2off.clone();
+		//name2node:
+		for(Entry<String,Node> entry:net.name2node.entrySet())
+			name2node.put(entry.getKey(), nodeMapping.get(entry.getValue()));
+		//nodeByLayer:
+		nodeByLayer=(ArrayList<ArrayList<Integer>>) net.nodeByLayer.clone();
+		//structure(parents):
+		if(copyStructure){
+			for(int i=0;i<nodes.size();i++){
+				Node newn=nodes.get(i);
+				Node oldn=net.nodes.get(i);
+				for(Node p:oldn.getParents())
+					newn.addParent(nodeMapping.get(p));
+				//distributions (CDT and MD)
+				if(copyDistribution){
+					newn.setCDT(oldn.getCDT());
+					newn.setDefaultMD(oldn.getDefaultMD());
+				}
+			}//nodes
+		}//copyStructure
+	}
+
 	/**
 	 * Initialize csv information: set inner parameters, output a csv configuration file. 
 	 * 
@@ -103,7 +145,7 @@ public class Network {
 	public void generateCSVConfFile(String csvConfFile) throws IOException{
 		System.out.println("Start to output csv configuration file used for hadoop jobs.");
 		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(csvConfFile)))));
-		pw.println(N);
+		pw.println(nodes.size());
 		for(Node n : csv2node){
 			pw.print(n.getnState());
 			pw.print(" ");
@@ -114,6 +156,17 @@ public class Network {
 		csv2node=null;
 		csv2off=null;
 		name2csv=null;
+	}
+	
+	//inner mappings:
+	public Node map2node(String name){
+		return name2node.get(name);
+	}
+	public Node map2node(int innerOffset){
+		return nodes.get(innerOffset);
+	}
+	public Node map2nodeFromCSV(int csvOffset){
+		return csv2node.get(csvOffset);
 	}
 	public int map2csvOffset(Node n){
 		return name2csv.get(n.getName());
@@ -275,7 +328,7 @@ public class Network {
 					arr[i]/=sum;
 				try {
 					if(n.getParents().size()!=0)
-						n.setCDT(off, arr);	//for normal nodes, set conditional distribution table entry
+						n.setCDT(off, arr, sum);	//for normal nodes, set conditional distribution table entry
 					else
 						n.setDefaultMD(arr);	//for layer-0 nodes, set marginal distribution
 				} catch (Exception e) {
@@ -294,7 +347,7 @@ public class Network {
 			float[] md=new float[countMarginal[i].length];
 			for(int j=0;j<countMarginal[i].length;++j)
 				md[j]=countMarginal[i][j]/(float)sum;
-			nodes.get(i).setDefaultMD(md);
+			n.setDefaultMD(md, sum);
 		}//end for md
 	}
 	
@@ -334,7 +387,8 @@ public class Network {
 					float[] cpd=new float[n.getnState()];
 					for(int j=0;j<n.getnState();++j)
 						cpd[j]=scn.nextFloat();
-					n.setCDT(offset, cpd);
+					int sum=scn.nextInt();
+					n.setCDT(offset, cpd, sum);
 				}
 			}
 		}
@@ -343,6 +397,7 @@ public class Network {
 	
 	/**
 	 * Output brief structure using node name
+	 * 
 	 * @param structureFile
 	 * @throws IOException
 	 */
@@ -365,6 +420,7 @@ public class Network {
 	}
 	/**
 	 * Output brief structure using node offset in the csv file
+	 * 
 	 * @param structureFile
 	 * @throws IOException
 	 */
@@ -387,6 +443,7 @@ public class Network {
 	}
 	/**
 	 * Output complete structure (with conditional distribution table (CDT)) using node name.
+	 * 
 	 * @param structureFile
 	 * @param withMarginal	whether to output the marginal distribution of each node before the parent information
 	 * @throws IOException
@@ -400,13 +457,12 @@ public class Network {
 			pw.println(n.getName()+" "+parents.size());
 			//marginal distribution:
 			if(withMarginal){
-				StringBuilder sb=new StringBuilder();
 				for(float f : n.getDefaultMD()){
-					sb.append(f);
-					sb.append(" ");
+					pw.print(f);
+					pw.print(" ");
 				}
-				sb.delete(sb.length()-1, sb.length());	//remove the last " "
-				pw.println(sb.toString());
+				pw.print(n.getOccurrenceAll());
+				pw.print("\n");
 			}
 			//parents:
 			if(parents.size()==0)	//no parents
@@ -429,6 +485,8 @@ public class Network {
 					pw.print(" ");
 					pw.print(f);
 				}
+				pw.print(" ");
+				pw.print(n.getOccurrenceCDT(i));
 				pw.print("\n");
 			}
 		}
@@ -438,6 +496,7 @@ public class Network {
 	
 	/**
 	 * Predict the queried nodes' states based on given states.
+	 * 
 	 * @param given	the map between given nodes and their states
 	 * @param query	the list of queried nodes' name
 	 * @return
@@ -454,6 +513,7 @@ public class Network {
 	}
 	/**
 	 * Predict the queried nodes' distribution based on given states.
+	 * 
 	 * @param given
 	 * @param query
 	 * @return
@@ -477,6 +537,7 @@ public class Network {
 	}
 	/**
 	 * Predict all the other nodes' states based on given states.
+	 * 
 	 * @param given	the map between given nodes and their states
 	 * @return
 	 */
@@ -491,48 +552,15 @@ public class Network {
 	}
 	
 	
-	//Main:
-	public static void main(String[] args) throws Exception{
-		FileSystem hdfs=FileSystem.get(new Configuration());
-		HashMap<String,String> properties=new HashMap<String,String>();
-		String PREFIX="../tmp/traffic2/";
-		properties.put("nodeFile", PREFIX+"conf/node.txt");
-		properties.put("knowledgeFile", PREFIX+"conf/knowledge.txt");
-		properties.put("csvHeadFile", PREFIX+"conf/csvhead.csv");
-		properties.put("csvConfFile", PREFIX+"conf/csvconf.txt");
-		properties.put("csvFolder", PREFIX+"input");
-		properties.put("famScoreFolder", PREFIX+"output_famscore/");
-		properties.put("structureBriefFile", PREFIX+"structure_brief.txt");
-		properties.put("structureCSVBriefFile", PREFIX+"structure_brief_csv.txt");
-		properties.put("distributionFolder", PREFIX+"output_distribution");
-		properties.put("structureFile",PREFIX+"structure.txt");
-		//for local debug
-		for(Entry<String,String> entry: properties.entrySet())
-			entry.setValue("../tmp/"+entry.getValue());
-		//run:
-		Network net=new Network(hdfs,properties.get("nodeFile"), properties.get("knowledgeFile"));
-		net.setCSVFormat(properties.get("csvHeadFile"),properties.get("csvConfFile"));
-//		net.greedyLearning(properties.get("csvFolder"),properties.get("csvConfFile"),
-//				properties.get("famScoreFolder"),500.0);
-//		net.loadStructure(properties.get("structureBriefFile"), false, false);
-		net.loadStructure(properties.get("structureFile"), true, true);
-		
-//		net.outputBriefStructureWithName(properties.get("structureBriefFile"));
-//		net.outputBriefStructureWithCSVoff(properties.get("structureCSVBriefFile"));
-//		net.calDistribution(properties.get("csvFolder"), properties.get("structureCSVBriefFile"),
-//				properties.get("csvConfFile"), properties.get("distributionFolder"));
-//		net.outputStructure(properties.get("structureFile"),true);
-		
-		HashMap<String,Integer> given=new HashMap<String,Integer>();
-		given.put("A1", 1);
-		given.put("A2", 3);
-		given.put("A3", 0);
-		Map<String,Integer> res=net.predict(given);
-		for(Entry<String,Integer> entry : res.entrySet()){
-			System.out.println(entry.getKey()+"\t"+entry.getValue());
-		}
-		
-		System.out.println("Finished.");
+	//Trivial getter & setter:
+	public ArrayList<Node> getNodes() {
+		return nodes;
 	}
-	
+	public int getnNodes() {
+		return nodes.size();
+	}
+	public FileSystem getHdfs() {
+		return hdfs;
+	}
+		
 }
