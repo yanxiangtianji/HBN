@@ -19,7 +19,9 @@ public class BasicUpdater {
 	public BasicUpdater(float maxp) {
 		this.maxp = maxp;
 	}
-
+	public BasicUpdater(double maxp) {
+		this.maxp = (float)maxp;
+	}
 	/**
 	 * Update the network's CDT, by merging the model in the incrementModelFile.
 	 * Requirement: the model structure in incrementModelFile is the same to the
