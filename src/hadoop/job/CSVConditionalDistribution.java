@@ -1,8 +1,8 @@
 /*
  * Get the DISTRIBUTION of each possible structure, given existing parents' ID, child's ID 
  * and possible parents ID by JobConf. 
- * Mapper output: (ParID, code of parents' values)->(child value, times)
- * Reducer output: key->parentID; value-> Score
+ * Mapper output: (ParID, code of parents' values) -> (child value, times)
+ * Reducer output: (ParID, code of parents' values) -> times of each value
  */
 package hadoop.job;
 
