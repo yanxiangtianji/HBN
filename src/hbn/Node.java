@@ -107,27 +107,27 @@ public class Node implements Comparator<Node>{
 		return cacheMD;
 	}
 	private float[] calMD() throws Exception{
-		float[][] parMD=new float[parents.size()][];
-		int[] parID=new int[parents.size()];
+		float[][] parMD=new float[parents.size()][];	//in real parent order
+		int[] parConsiderOrder=new int[parents.size()];	//in the order of calculation convenience
 		int[] numOfZero=new int[parents.size()];
 		for(int i=0;i<parents.size();i++){
 			parMD[i]=parents.get(i).getCacheMD();
-			parID[i]=i;
+			parConsiderOrder[i]=i;
 			for(float f : parMD[i])
-				if(f==0.0f)
+				if(f==0.0)
 					++numOfZero[i];
 		}
-		//To speed up the calculation, sort by the number of 0.0 from more to less.
-		sort3By1(numOfZero,parID,parMD);
+		//To speed up the calculation, sort the parents by the number of 0.0 in their marginal distribution from more to less.
+		sort2By1(numOfZero,parConsiderOrder);
 		numOfZero=null;
 		//P(R=Rx,A=A1,B=B1,C=C1) = P(R=Rx|A=A1,B=B1,C=C1)*P(A=A1)*P(B=B1)*P(C=C1)
 		//P(R=Rx) = SUM{ P(R=Rx|cond)*P(cond) } for all cond
 		float[] res=new float[nState];
-		int[] cond_temp=new int[parents.size()];
-		_dfs_accumulate_MD(res,parMD,parID,0,1.0f,cond_temp);
+		int[] cond_temp=new int[parents.size()];	//in real parent order
+		_dfs_accumulate_MD(res,parMD,parConsiderOrder,0,1.0f,cond_temp);
 		return res;
 	}
-	private void _dfs_accumulate_MD(float[] res, float[][] parMD, int[] parID,
+	private void _dfs_accumulate_MD(float[] res, float[][] parMD, int[] parConsiderOrder,
 			int pos, float pcond, int[] cond) throws Exception{
 		if(pcond==0.0){
 			return;
@@ -137,24 +137,26 @@ public class Node implements Comparator<Node>{
 				res[i]+=pcond*cd[i];
 			return;
 		}
-		int cur_par_nState=parents.get(parID[pos]).getnState();
-		float[] cur_par_MD=parMD[parID[pos]];
+		int realParentNum=parConsiderOrder[pos];
+		int cur_par_nState=parents.get(realParentNum).getnState();
+		float[] cur_par_MD=parMD[realParentNum];
 		for(int st=0;st<cur_par_nState;++st){
-			cond[pos]=st;
-			_dfs_accumulate_MD(res,parMD,parID,pos+1,pcond*cur_par_MD[st],cond);
+			if(cur_par_MD[st]!=0.0){
+				cond[realParentNum]=st;
+				_dfs_accumulate_MD(res,parMD,parConsiderOrder,pos+1,pcond*cur_par_MD[st],cond);
+			}
 		}
 	}
 	//sort 3 arrays by the first one (from big to small)
-	private static void sort3By1(int[] bench, int[] load1, float[][] load2){
+	private static void sort2By1(int[] bench, int[] load1){
 		for(int i=1;i<bench.length;++i){
 			int key=bench[i];
 			int t1=load1[i];
-			float[] t2=load2[i];
 			int j=i-1;
 			for(;j>=0 && bench[j]<key;--j){
-				bench[j+1]=bench[j];	load1[j+1]=load1[j];	load2[j+1]=load2[j];
+				bench[j+1]=bench[j];	load1[j+1]=load1[j];
 			}
-			bench[j+1]=key;	load1[j+1]=t1;	load2[j+1]=t2;
+			bench[j+1]=key;	load1[j+1]=t1;
 		}
 	}
 	

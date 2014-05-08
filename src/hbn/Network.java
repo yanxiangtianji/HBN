@@ -78,8 +78,8 @@ public class Network {
 	/**
 	 * Initialize csv information: set inner parameters, output a csv configuration file. 
 	 * 
-	 * @param csvHeadFile:	input csv file with the head line.
-	 * @param csvConfFile:	output a csv configuration file used for Hadoop csv procedures
+	 * @param csvHeadFile	input csv file with the head line.
+	 * @param csvConfFile	output a csv configuration file used for Hadoop csv procedures
 	 * @throws IOException
 	 */
 	public void setCSVFormat(String csvHeadFile, String csvConfFile) throws IOException{
@@ -125,9 +125,9 @@ public class Network {
 	/**
 	 * Greedy learning on given csv files
 	 * 
-	 * @param csvHeadFile;	file containing the csv head line. Used for mapping csv offset to inner offset 
-	 * @param input;	folder containing input csv files
-	 * @param csvConfFile;	the number of node and the number of states for each node
+	 * @param csvHeadFile	file containing the csv head line. Used for mapping csv offset to inner offset 
+	 * @param input	folder containing input csv files
+	 * @param csvConfFile	the number of node and the number of states for each node
 	 * @param baseOutput
 	 * @param threshold
 	 * @throws Exception
@@ -220,12 +220,12 @@ public class Network {
 	/**
 	 * calculate conditional distribution table with given data and given edges.
 	 * 
-	 * @param input;	folder for given data files
-	 * @param briefStructureFile;	brief structure file described in csv offset.
+	 * @param input	folder for given data files
+	 * @param briefStructureFile	brief structure file described in csv offset.
 	 *  If it doesn't exist, create one with current information.
-	 * @param csvConfFile;	configuration file about csv file information.
+	 * @param csvConfFile	configuration file about csv file information.
 	 *  if it doesn't exist, throw an exception.
-	 * @param distributionFolder;	the Hadoop output folder for distribution calculation 
+	 * @param distributionFolder	the Hadoop output folder for distribution calculation 
 	 * @throws Exception; 1, csvConfFile doesn't exist. 2, inner Hadoop job throws exceptions. 
 	 */
 	public void calDistribution(String input, String briefStructureFile, 
@@ -318,6 +318,8 @@ public class Network {
 					md[j]=scn.nextFloat();
 				n.setDefaultMD(md);
 			}
+			if(numParent==0)
+				continue;
 			//parents:
 			for(int j=0;j<numParent;j++){
 				String parent=scn.next();
@@ -327,7 +329,7 @@ public class Network {
 			if(withDistribution){
 				n.initCDT();
 				int nCDT=scn.nextInt();
-					while(nCDT-->=0){
+				while(nCDT-->0){
 					int offset=scn.nextInt();
 					float[] cpd=new float[n.getnState()];
 					for(int j=0;j<n.getnState();++j)
@@ -346,7 +348,7 @@ public class Network {
 	 */
 	public void outputBriefStructureWithName(String structureFile) throws IOException{
 		System.out.println("Start to output brief structure via node name.");
-		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));		
+		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));
 		for(Node n: nodes){
 			ArrayList<Node> parents=n.getParents();
 			pw.println(n.getName()+" "+parents.size());
@@ -368,7 +370,7 @@ public class Network {
 	 */
 	public void outputBriefStructureWithCSVoff(String structureFile) throws IOException{
 		System.out.println("Start to output brief structure via offset in the csv file.");
-		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));		
+		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));
 		for(Node n: nodes){
 			ArrayList<Node> parents=n.getParents();
 			pw.println(name2csv.get(n.getName())+" "+parents.size());
@@ -386,13 +388,13 @@ public class Network {
 	/**
 	 * Output complete structure (with conditional distribution table (CDT)) using node name.
 	 * @param structureFile
-	 * @param withMarginal;	whether to output the marginal distribution of each node before the parent information
+	 * @param withMarginal	whether to output the marginal distribution of each node before the parent information
 	 * @throws IOException
 	 */
 	public void outputStructure(String structureFile, boolean withMarginal) throws IOException{
 		System.out.println("Start to output full structure via node name, "
 				+(withMarginal?"with":"with out")+" marginal distribution.");
-		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));		
+		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));
 		for(Node n: nodes){
 			ArrayList<Node> parents=n.getParents();
 			pw.println(n.getName()+" "+parents.size());
@@ -407,8 +409,8 @@ public class Network {
 				pw.println(sb.toString());
 			}
 			//parents:
-			if(parents.size()==0)
-				continue;	//no parents
+			if(parents.size()==0)	//no parents
+				continue;
 			pw.print(parents.get(0).getName());
 			for(int i=1;i<parents.size();i++){
 				pw.print(" ");
@@ -430,14 +432,14 @@ public class Network {
 				pw.print("\n");
 			}
 		}
-		pw.close();		
+		pw.close();
 	}
 	
 	
 	/**
 	 * Predict the queried nodes' states based on given states.
-	 * @param given;	the map between given nodes and their states
-	 * @param query;	the list of queried nodes' name
+	 * @param given	the map between given nodes and their states
+	 * @param query	the list of queried nodes' name
 	 * @return
 	 */
 	public Map<String,Integer> predict(Map<String,Integer> given, List<String> query){
@@ -475,7 +477,7 @@ public class Network {
 	}
 	/**
 	 * Predict all the other nodes' states based on given states.
-	 * @param given;	the map between given nodes and their states
+	 * @param given	the map between given nodes and their states
 	 * @return
 	 */
 	public Map<String,Integer> predict(Map<String,Integer> given){
