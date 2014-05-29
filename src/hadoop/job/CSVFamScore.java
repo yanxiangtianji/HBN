@@ -199,7 +199,10 @@ public class CSVFamScore {
 //		tempPath="TEMP_FAMSCORE_"+System.currentTimeMillis()+"_"+rand;
 		SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMdd-HHmmss");
 		String timeString = formatter.format(System.currentTimeMillis());
-		tempPath=param.getInput().replaceAll("[^/]+$", "TEMP_FAMSCORE_"+timeString+"_"+rand);
+		tempPath=param.getInput();
+		if(tempPath.endsWith("/"))
+			tempPath=tempPath.replaceAll("/+$", "");
+		tempPath=tempPath.replaceAll("[^/]+$", "TEMP_FAMSCORE_"+timeString+"_"+rand);
 		Path p=new Path(tempPath);
 		//job1
 		FileInputFormat.setInputPaths(conf1, new Path(param.getInput()));
@@ -218,7 +221,7 @@ public class CSVFamScore {
 		hdfs.delete(new Path(tempPath),true);
 	}
 
-	public int run() throws Exception {
+	public int run() throws IOException {
 		Configuration baseConf=new Configuration(); 
 		JobConf conf1 = new JobConf(baseConf, CSVFamScore.class);
 		JobConf conf2 = new JobConf(baseConf, CSVFamScore.class);
@@ -247,9 +250,22 @@ public class CSVFamScore {
 //		conf.setNumReduceTasks(2);
 		
 			
-		JobClient.runJob(conf1);//launch 1st job:		
+		try {
+			JobClient.runJob(conf1);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			CleanUp(conf1);
+			JobClient.runJob(conf1);
+		}//launch 1st job:		
 //		System.out.println("Job 1 finished!");
-		JobClient.runJob(conf2);//launch 2nd job:
+		try {
+			JobClient.runJob(conf2);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			JobClient.runJob(conf2);
+		}//launch 2nd job:		
 		
 		CleanUp(conf1);//clean up intermediate files	
 		return 0;
