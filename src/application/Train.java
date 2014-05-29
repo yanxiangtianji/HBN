@@ -3,44 +3,78 @@ package application;
 import hbn.Network;
 
 import java.util.HashMap;
-import java.util.Map.Entry;
+import java.util.Map;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+
+import util.ArgsParser;
+import util.HDFSWrite;
 
 public class Train {
+	
 
 	public static void main(String[] args) throws Exception{
-		FileSystem hdfs=FileSystem.get(new Configuration());
+		System.out.println("Train:");
+		
+//		String PREFIX="../tmp/traffic3/";
+//		String PREFIX="traffic3/";
+		Map<String,String> argsMap=ArgsParser.parse(args);
+		String PREFIX=argsMap.get("-prefix");
+		if(!PREFIX.endsWith("/"))
+			PREFIX=PREFIX+"/";
+		double improvement=500.0;
+		if(argsMap.get("-improvement")!=null)
+			improvement=Double.parseDouble(argsMap.get("-improvement"));	//throws when argument is wrong
+		if(improvement<=0)
+			throw new Exception("Improvement value is illegal: "+improvement);
+		boolean multiThread=false;
+		if(argsMap.get("-mt")=="true" || argsMap.get("-mt")=="1")
+			multiThread=true;
+		
+		String modelFolder=null;
+		if(multiThread)
+			modelFolder="p"+(int)improvement+"mt/";
+		else
+			modelFolder="p"+(int)improvement+"/";
+		
 		HashMap<String,String> properties=new HashMap<String,String>();
-		String PREFIX="../tmp/traffic/";
 		properties.put("nodeFile", PREFIX+"conf/node.txt");
 		properties.put("knowledgeFile", PREFIX+"conf/knowledge.txt");
 		properties.put("csvHeadFile", PREFIX+"conf/csvhead.csv");
 		properties.put("csvConfFile", PREFIX+"conf/csvconf.txt");
-		properties.put("csvFolder", PREFIX+"input");
+		properties.put("csvFolder", PREFIX+"input/");
 		properties.put("famScoreFolder", PREFIX+"output_famscore/");
-		properties.put("structureBriefFile", PREFIX+"structure_brief.txt");
-		properties.put("structureCSVBriefFile", PREFIX+"structure_brief_csv.txt");
-		properties.put("distributionFolder", PREFIX+"output_distribution");
-		properties.put("structureFile",PREFIX+"structure.txt");
-		//for local debug
-		for(Entry<String,String> entry: properties.entrySet())
-			entry.setValue("../tmp/"+entry.getValue());
+		properties.put("structureBriefFile", PREFIX+modelFolder+"structure_brief.txt");
+		properties.put("structureCSVBriefFile", PREFIX+modelFolder+"structure_brief_csv.txt");
+		properties.put("structureFile",PREFIX+modelFolder+"structure.txt");
+		properties.put("distributionFolder", PREFIX+modelFolder+"output_distribution/");
+
 		//run:
+		long time=System.currentTimeMillis();
+		
+		FileSystem hdfs=FileSystem.get(new Configuration());
 		Network net=new Network(hdfs,properties.get("nodeFile"), properties.get("knowledgeFile"));
 		net.setCSVFormat(properties.get("csvHeadFile"),properties.get("csvConfFile"));
-		net.greedyLearning(properties.get("csvFolder"),properties.get("csvConfFile"),
-				properties.get("famScoreFolder"),500.0);
+		if(multiThread){
+			net.greedyLearningMT(properties.get("csvFolder"),properties.get("csvConfFile"),
+					properties.get("famScoreFolder"),improvement);
+		}else{
+			net.greedyLearning(properties.get("csvFolder"),properties.get("csvConfFile"),
+					properties.get("famScoreFolder"),improvement);
+		}
 //		net.loadStructure(properties.get("structureBriefFile"), false, false);
 //		net.loadStructure(properties.get("structureFile"), true, true);
 		
 		net.outputBriefStructureWithName(properties.get("structureBriefFile"));
 		net.outputBriefStructureWithCSVoff(properties.get("structureCSVBriefFile"));
-		net.calDistribution(properties.get("csvFolder"), properties.get("structureCSVBriefFile"),
-				properties.get("csvConfFile"), properties.get("distributionFolder"));
-		net.outputStructure(properties.get("structureFile"),true);
+//		net.calDistribution(properties.get("csvFolder"), properties.get("structureCSVBriefFile"),
+//				properties.get("csvConfFile"), properties.get("distributionFolder"));
+//		net.outputStructure(properties.get("structureFile"),true);
 				
+		time=System.currentTimeMillis()-time;
+		HDFSWrite.writeTimeMilli(hdfs,time,new Path(PREFIX+modelFolder+"time.txt"));
 		System.out.println("Finished.");
 	}
 	
