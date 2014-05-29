@@ -216,9 +216,10 @@ public class CSVFamScore {
 		conf1.setJobName("famscore_front_"+p);
 		conf2.setJobName("famscore_back_"+p);
 	}
-	private void CleanUp(JobConf conf) throws IOException{
-		FileSystem hdfs=FileSystem.get(conf);
-		hdfs.delete(new Path(tempPath),true);
+	private void CleanUp(FileSystem hdfs) throws IOException{
+		Path p=new Path(tempPath);
+		if(tempPath!=null && hdfs.exists(p))
+			hdfs.delete(p,true);
 	}
 
 	public int run() throws IOException {
@@ -249,25 +250,27 @@ public class CSVFamScore {
 
 //		conf.setNumReduceTasks(2);
 		
-			
+		//launch 1st job:
 		try {
 			JobClient.runJob(conf1);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-			CleanUp(conf1);
+			CleanUp(FileSystem.get(conf1));
 			JobClient.runJob(conf1);
-		}//launch 1st job:		
+		}	
 //		System.out.println("Job 1 finished!");
+		//launch 2nd job:	
 		try {
 			JobClient.runJob(conf2);
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 			JobClient.runJob(conf2);
-		}//launch 2nd job:		
+		}finally{
+			CleanUp(FileSystem.get(conf1));//clean up intermediate files
+		}
 		
-		CleanUp(conf1);//clean up intermediate files	
 		return 0;
 	}
 

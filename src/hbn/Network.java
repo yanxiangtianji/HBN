@@ -213,7 +213,7 @@ public class Network {
 		}
 	}
 	private void greedyLearningOne(Node specifiedNode, CSVFamScoreParam param, String baseOutput,
-			double threshold) throws Exception{
+			double threshold) throws IOException, CloneNotSupportedException{// throws Exception{
 //		Node specifiedNode=nodes.get(csv2off.get(specified));
 		int specified=map2csvOffset(specifiedNode);
 		CSVFamScoreParam p=param.clone();
@@ -235,7 +235,14 @@ public class Network {
 			String output=baseOutput+p.getGiven().toString().replaceAll("[\\[\\] ]", "");
 			p.setOutput(output);
 			f.configure(p);
-			f.run();
+			try {
+				f.run();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+				System.out.println("redo:");
+				f.run();
+			}
 			//find the node with largest famscore and connect it with current node
 			Pair<Integer,Double> famRes=findLargestFamScore(output);
 			last=current;
@@ -249,6 +256,60 @@ public class Network {
 			System.out.println("FamScore improvement is "+ (current-last));
 		}
 	}
+	
+	public void greedyLearningMT(String input, String csvConfFile
+			, String baseOutput, double threshold) throws Exception{
+		System.out.println("Start the greedy learning.");
+		//prepare:
+		CSVFamScoreParam param=new CSVFamScoreParam();
+		param.setCsvConfFile(csvConfFile);
+		param.setInput(input);
+		ArrayList<Integer> possibleParentsInCSV=new ArrayList<Integer>();
+		for(int i : nodeByLayer.get(0)){	//initialize parents
+			possibleParentsInCSV.add(map2csvOffset(i));
+		}
+		//start working:
+		for(int layer=1;layer<nodeByLayer.size();layer++){
+//		for(int layer=1;layer<2;layer++){
+			System.out.println("Processing layer "+layer+"...");
+			ArrayList<Integer> thisLayer=nodeByLayer.get(layer);
+			param.setPossible(possibleParentsInCSV);
+			greedyLearningOneThread[] list=new greedyLearningOneThread[thisLayer.size()];
+			for(int i=0;i<thisLayer.size();i++){
+				list[i]=new greedyLearningOneThread(
+						nodes.get(thisLayer.get(i)), param, baseOutput, threshold);
+				list[i].start();
+			}
+			for(greedyLearningOneThread n:list){
+				n.join();
+			}
+			for(int i : thisLayer)
+				possibleParentsInCSV.add(map2csvOffset(i));
+			System.out.println("Finish processing layer "+layer+".");
+		}
+	}
+	private class greedyLearningOneThread extends Thread{
+		Node specifiedNode;
+		CSVFamScoreParam param;
+		String baseOutput;
+		double threshold;
+		public greedyLearningOneThread(Node specifiedNode, CSVFamScoreParam param, String baseOutput,
+				double threshold){
+			this.specifiedNode=specifiedNode;
+			this.param=param;
+			this.baseOutput=baseOutput;
+			this.threshold=threshold;
+		}
+		@Override
+		public void run(){
+			try {
+				greedyLearningOne(specifiedNode,param,baseOutput,threshold);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
 
 	//find the node offset in csv file with largest FamScore in Hadoop output folder "output"
 	private Pair<Integer,Double> findLargestFamScore(String output) throws IOException{
