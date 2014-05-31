@@ -16,6 +16,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.Scanner;
 
 import org.apache.hadoop.fs.FileSystem;
@@ -35,6 +38,7 @@ public class Network {
 	private ArrayList<Integer> csv2off=new ArrayList<Integer>();	//csv offset to node offset
 	private ArrayList<ArrayList<Integer>> nodeByLayer=new ArrayList<ArrayList<Integer>>();
 	private FileSystem hdfs;
+	
 	
 	//initial (generate node, arrange by layer)
 	public Network(FileSystem hdfs, String nodeFile, String knowledgeFile) throws IOException{
@@ -240,7 +244,7 @@ public class Network {
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
-				System.out.println("redo:");
+				System.out.println("redo: "+param.getSpecified());
 				f.run();
 			}
 			//find the node with largest famscore and connect it with current node
@@ -258,7 +262,7 @@ public class Network {
 	}
 	
 	public void greedyLearningMT(String input, String csvConfFile
-			, String baseOutput, double threshold) throws Exception{
+			, String baseOutput, double threshold, int nMultiThread) throws Exception{
 		System.out.println("Start the greedy learning.");
 		//prepare:
 		CSVFamScoreParam param=new CSVFamScoreParam();
@@ -269,23 +273,29 @@ public class Network {
 			possibleParentsInCSV.add(map2csvOffset(i));
 		}
 		//start working:
+		ExecutorService executorService = Executors.newFixedThreadPool(nMultiThread);
 		for(int layer=1;layer<nodeByLayer.size();layer++){
-//		for(int layer=1;layer<2;layer++){
-			System.out.println("Processing layer "+layer+"...");
 			ArrayList<Integer> thisLayer=nodeByLayer.get(layer);
 			param.setPossible(possibleParentsInCSV);
-			greedyLearningOneThread[] list=new greedyLearningOneThread[thisLayer.size()];
+//			greedyLearningOneThread[] list=new greedyLearningOneThread[thisLayer.size()];
 			for(int i=0;i<thisLayer.size();i++){
-				list[i]=new greedyLearningOneThread(
+				greedyLearningOneThread t=new greedyLearningOneThread(
 						nodes.get(thisLayer.get(i)), param, baseOutput, threshold);
-				list[i].start();
+				executorService.submit(t);
+//				list[i]=t;
+//				t.start();
 			}
-			for(greedyLearningOneThread n:list){
-				n.join();
-			}
+//			for(greedyLearningOneThread n:list){
+//				n.join();
+//			}
 			for(int i : thisLayer)
 				possibleParentsInCSV.add(map2csvOffset(i));
-			System.out.println("Finish processing layer "+layer+".");
+		}
+		executorService.shutdown();
+		try {
+			while(!executorService.awaitTermination(1, TimeUnit.MINUTES));
+		} catch (InterruptedException e) {
+			e.printStackTrace();
 		}
 	}
 	private class greedyLearningOneThread extends Thread{
