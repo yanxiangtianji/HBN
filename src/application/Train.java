@@ -29,15 +29,21 @@ public class Train {
 			improvement=Double.parseDouble(argsMap.get("-improvement"));	//throws when argument is wrong
 		if(improvement<=0)
 			throw new Exception("Improvement value is illegal: "+improvement);
-		boolean multiThread=false;
-		if(argsMap.get("-mt")=="true" || argsMap.get("-mt")=="1")
-			multiThread=true;
+		int multiThread=1;	//1,0 -> single thread
+		if(argsMap.get("-mt")!=null)
+			multiThread=Integer.parseInt(argsMap.get("-mt"));
+		if(multiThread<0)
+			throw new Exception("Number of thread is illegal: "+multiThread);
 		
 		String modelFolder=null;
-		if(multiThread)
+		if(multiThread>=2)
 			modelFolder="p"+(int)improvement+"mt/";
 		else
 			modelFolder="p"+(int)improvement+"/";
+		
+		System.out.println("prefix: "+PREFIX);
+		System.out.println("multi-thread: "+multiThread);
+		System.out.println("improvement: "+improvement);
 		
 		HashMap<String,String> properties=new HashMap<String,String>();
 		properties.put("nodeFile", PREFIX+"conf/node.txt");
@@ -57,9 +63,9 @@ public class Train {
 		FileSystem hdfs=FileSystem.get(new Configuration());
 		Network net=new Network(hdfs,properties.get("nodeFile"), properties.get("knowledgeFile"));
 		net.setCSVFormat(properties.get("csvHeadFile"),properties.get("csvConfFile"));
-		if(multiThread){
+		if(multiThread>=2){
 			net.greedyLearningMT(properties.get("csvFolder"),properties.get("csvConfFile"),
-					properties.get("famScoreFolder"),improvement);
+					properties.get("famScoreFolder"),improvement,multiThread);
 		}else{
 			net.greedyLearning(properties.get("csvFolder"),properties.get("csvConfFile"),
 					properties.get("famScoreFolder"),improvement);
