@@ -256,6 +256,7 @@ public class CSVFamScore {
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+			System.out.println("redo: job1 of "+param.getSpecified());
 			CleanUp(FileSystem.get(conf1));
 			JobClient.runJob(conf1);
 		}	
@@ -266,6 +267,8 @@ public class CSVFamScore {
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
+			System.out.println("redo: job2 of "+param.getSpecified());
+			FileSystem.get(conf2).delete(new Path(param.getOutput()), true);
 			JobClient.runJob(conf2);
 		}finally{
 			CleanUp(FileSystem.get(conf1));//clean up intermediate files
