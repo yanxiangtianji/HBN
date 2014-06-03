@@ -7,6 +7,7 @@ import hadoop.job.CSVFamScore;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -216,11 +217,9 @@ public class Network {
 			System.out.println("Finish processing layer "+layer+".");
 		}
 	}
-	private void greedyLearningOne(Node specifiedNode, CSVFamScoreParam param, String baseOutput,
-			double threshold) throws IOException, CloneNotSupportedException{// throws Exception{
-//		Node specifiedNode=nodes.get(csv2off.get(specified));
+	private void greedyLearningOne(Node specifiedNode, CSVFamScoreParam p, String baseOutput,
+			double threshold) throws IOException{// throws Exception{
 		int specified=map2csvOffset(specifiedNode);
-		CSVFamScoreParam p=param.clone();
 		p.setSpecified(specified);
 		baseOutput=baseOutput+"/famscore_"+specified;
 		Path outputPath=new Path(baseOutput);
@@ -231,7 +230,7 @@ public class Network {
 		
 		CSVFamScore f=new CSVFamScore();
 		double last=-Double.MAX_VALUE, current=-Double.MAX_VALUE;
-		int maxIteration=param.getPossible().size();
+		int maxIteration=p.getPossible().size();
 		int iteration=0;
 		while(iteration++ < maxIteration && 
 				(current==-Double.MAX_VALUE || current-last>=threshold)){
@@ -244,11 +243,12 @@ public class Network {
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
-				System.out.println("redo: "+param.getSpecified());
+				System.out.println("redo: "+p.getSpecified());
 				f.run();
 			}
 			//find the node with largest famscore and connect it with current node
 			Pair<Integer,Double> famRes=findLargestFamScore(output);
+//			Pair<Integer,Double> famRes=new Pair<Integer,Double>(p.getPossible().get(0),iteration*10.0);
 			last=current;
 			current=famRes.second.doubleValue();
 			int parentInCSV=famRes.first.intValue();
@@ -256,7 +256,7 @@ public class Network {
 			p.movePossible2Given(parentInCSV);
 			specifiedNode.addParent(nodes.get(parentInHBN));
 			//show status
-			System.out.println("In loop "+iteration+", parent "+parentInCSV+"is choosen.");
+			System.out.println("In loop "+iteration+", parent "+parentInCSV+" is choosen.");
 			System.out.println("FamScore improvement is "+ (current-last));
 		}
 	}
@@ -306,7 +306,7 @@ public class Network {
 		public greedyLearningOneThread(Node specifiedNode, CSVFamScoreParam param, String baseOutput,
 				double threshold){
 			this.specifiedNode=specifiedNode;
-			this.param=param;
+			this.param=param.clone();
 			this.baseOutput=baseOutput;
 			this.threshold=threshold;
 		}
