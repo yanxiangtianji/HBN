@@ -7,7 +7,6 @@ import hadoop.job.CSVFamScore;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -17,10 +16,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.Scanner;
 
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
@@ -31,13 +30,17 @@ import Entity.Pair;
 
 public class Network {
 //	private int N;
-	private ArrayList<Node> nodes=new ArrayList<Node>();
+	private Node[] nodes;
+	private ArrayList<ArrayList<Integer>> nodeByLayer=new ArrayList<ArrayList<Integer>>();
 	private HashMap<String,Node> name2node=new HashMap<String,Node>();
 	private HashMap<String,Integer> name2off=new HashMap<String,Integer>();
-	private HashMap<String,Integer> name2csv=new HashMap<String,Integer>();	//name to csv offset
-	private ArrayList<Node> csv2node=new ArrayList<Node>();	//csv offset to node
-	private ArrayList<Integer> csv2off=new ArrayList<Integer>();	//csv offset to node offset
-	private ArrayList<ArrayList<Integer>> nodeByLayer=new ArrayList<ArrayList<Integer>>();
+	
+	private int[] off2csv;//=new ArrayList<Integer>();
+	private HashMap<String,Integer> name2csv;	//name to csv offset
+//	private ArrayList<Node> csv2node=new ArrayList<Node>();	//csv offset to node
+	private Node[] csv2node;
+//	private ArrayList<Integer> csv2off=new ArrayList<Integer>();	//csv offset to node offset
+	private int[] csv2off;
 	private FileSystem hdfs;
 	
 	
@@ -49,7 +52,8 @@ public class Network {
 		String[] names=new String[N];
 		int[] nStates=new int[N];
 		int[] layers=new int[N];
-		for(int i=0;i<N;i++){	//load name & nState
+		//load name & nState
+		for(int i=0;i<N;i++){
 			String name=s_n.next();
 			names[i]=name;
 			nStates[i]=s_n.nextInt();
@@ -57,21 +61,28 @@ public class Network {
 		}
 		s_n.close();
 		Scanner s_k=new Scanner(hdfs.open(new Path(knowledgeFile)));
-		for(int i=0;i<N;i++){	//load name & layer
+		//load name & layer
+		for(int i=0;i<N;i++){
 			layers[name2off.get(s_k.next())]=s_k.nextInt();
 		}
 		s_k.close();
-		for(int i=0;i<N;i++){	//generate nodes
+		//generate nodes
+		nodes=new Node[N];
+		for(int i=0;i<N;i++){
 			Node n=new Node(names[i],nStates[i],layers[i]);
-			nodes.add(n);
+			nodes[i]=n;
 			name2node.put(names[i], n);
 		}
 		setNodeByLayer();
 	}
 	//initial (arrange by layer)
 	private void setNodeByLayer(){	//arrange nodes on each layer
-		for(int i=0;i<nodes.size();i++){
-			int layer=nodes.get(i).getLayer();
+		if(nodeByLayer==null)
+			nodeByLayer=new ArrayList<ArrayList<Integer>>();
+		else
+			nodeByLayer.clear();
+		for(int i=0;i<nodes.length;i++){
+			int layer=nodes[i].getLayer();
 			while(nodeByLayer.size()<=layer){	//format the raw container
 				nodeByLayer.add(new ArrayList<Integer>());
 			}
@@ -92,12 +103,12 @@ public class Network {
 		this.hdfs=net.hdfs;
 //		N=net.N;
 		//nodes:
-		nodes=new ArrayList<Node>();
+		nodes=new Node[net.nodes.length];
 		HashMap<Node,Node> nodeMapping=new HashMap<Node,Node>();
-		for(Node n:nodes){
-			Node newn=new Node(n);
-			nodes.add(newn);
-			nodeMapping.put(n, newn);
+		for(int i=0;i<net.nodes.length;i++){
+			Node newn=new Node(net.nodes[i]);
+			nodes[i]=newn;
+			nodeMapping.put(net.nodes[i], newn);
 		}		
 		//name2off:
 		name2off=(HashMap<String, Integer>) net.name2off.clone();
@@ -108,9 +119,9 @@ public class Network {
 		nodeByLayer=(ArrayList<ArrayList<Integer>>) net.nodeByLayer.clone();
 		//structure(parents):
 		if(copyStructure){
-			for(int i=0;i<nodes.size();i++){
-				Node newn=nodes.get(i);
-				Node oldn=net.nodes.get(i);
+			for(int i=0;i<nodes.length;i++){
+				Node newn=nodes[i];
+				Node oldn=net.nodes[i];
 				for(Node p:oldn.getParents())
 					newn.addParent(nodeMapping.get(p));
 				//distributions (CDT and MD)
@@ -132,35 +143,45 @@ public class Network {
 	public void setCSVFormat(String csvHeadFile, String csvConfFile) throws IOException{
 		System.out.println("Start to set csv format information.");
 		setCSVMapping(csvHeadFile);
-		generateCSVConfFile(csvConfFile);
+		if(csvConfFile!=null){
+			System.out.println("Start to output csv configuration file used for hadoop jobs.");
+			generateCSVConfFile(csvConfFile);
+		}
 	}
 	//map location in csv file to inner position
 	public void setCSVMapping(String csvHeadFile) throws IOException{	//process csv position and inner position
 		BufferedReader br=new BufferedReader(new InputStreamReader(hdfs.open(new Path(csvHeadFile))));
 		String line=br.readLine();
 		br.close();
+		csv2node=new Node[nodes.length];
+		csv2off=new int[nodes.length];
+		name2csv=new HashMap<String,Integer>();
+		off2csv=new int[nodes.length];
 		int p=0;
 		for(String str : line.split(",")){
-			csv2node.add(name2node.get(str));
-			csv2off.add(name2off.get(str));
-			name2csv.put(str, p++);
+			csv2node[p]=name2node.get(str);
+			csv2off[p]=name2off.get(str);
+			name2csv.put(str, p);
+			++p;
 		}
-	}
-	//generate the csv configuration file
-	public void generateCSVConfFile(String csvConfFile) throws IOException{
-		System.out.println("Start to output csv configuration file used for hadoop jobs.");
-		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(csvConfFile)))));
-		pw.println(nodes.size());
-		for(Node n : csv2node){
-			pw.print(n.getnState());
-			pw.print(" ");
-		}
-		pw.close();
+		for(int i=0;i<nodes.length;i++)
+			off2csv[i]=name2csv.get(nodes[i].getName());
 	}
 	public void clearCSVMapping(){
 		csv2node=null;
 		csv2off=null;
 		name2csv=null;
+		off2csv=null;
+	}
+	//generate the csv configuration file
+	public void generateCSVConfFile(String csvConfFile) throws IOException{
+		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(csvConfFile)))));
+		pw.println(nodes.length);
+		for(Node n : csv2node){
+			pw.print(n.getnState());
+			pw.print(" ");
+		}
+		pw.close();
 	}
 	
 	//inner mappings:
@@ -168,16 +189,19 @@ public class Network {
 		return name2node.get(name);
 	}
 	public Node map2node(int innerOffset){
-		return nodes.get(innerOffset);
+		return nodes[innerOffset];
 	}
 	public Node map2nodeFromCSV(int csvOffset){
-		return csv2node.get(csvOffset);
+		return csv2node[csvOffset];
 	}
 	public int map2csvOffset(Node n){
 		return name2csv.get(n.getName());
 	}
+	public int map2csvOffset(String name){
+		return name2csv.get(name);
+	}
 	public int map2csvOffset(int innerOffset){
-		return name2csv.get(nodes.get(innerOffset).getName());
+		return off2csv[innerOffset];
 	}
 	
 	/**
@@ -209,7 +233,7 @@ public class Network {
 			param.setPossible(possibleParentsInCSV);
 			for(int i=0;i<thisLayer.size();i++){
 				System.out.println("Processing node "+i+"...");
-				greedyLearningOne(nodes.get(thisLayer.get(i)), param, baseOutput, threshold);
+				greedyLearningOne(nodes[thisLayer.get(i)], param, baseOutput, threshold);
 				System.out.println("Finish processing node "+i+".");
 			}
 			for(int i : thisLayer)
@@ -241,7 +265,6 @@ public class Network {
 			try {
 				f.run();
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 				System.out.println("redo: "+p.getSpecified());
 				f.run();
@@ -252,9 +275,9 @@ public class Network {
 			last=current;
 			current=famRes.second.doubleValue();
 			int parentInCSV=famRes.first.intValue();
-			int parentInHBN=csv2off.get(parentInCSV);
+			int parentInHBN=csv2off[parentInCSV];
 			p.movePossible2Given(parentInCSV);
-			specifiedNode.addParent(nodes.get(parentInHBN));
+			specifiedNode.addParent(nodes[parentInHBN]);
 			//show status
 			System.out.println("In loop "+iteration+", parent "+parentInCSV+" is choosen.");
 			System.out.println("FamScore improvement is "+ (current-last));
@@ -280,7 +303,7 @@ public class Network {
 //			greedyLearningOneThread[] list=new greedyLearningOneThread[thisLayer.size()];
 			for(int i=0;i<thisLayer.size();i++){
 				greedyLearningOneThread t=new greedyLearningOneThread(
-						nodes.get(thisLayer.get(i)), param, baseOutput, threshold);
+						nodes[thisLayer.get(i)], param, baseOutput, threshold);
 				executorService.submit(t);
 //				list[i]=t;
 //				t.start();
@@ -375,9 +398,9 @@ public class Network {
 		for(Node n: nodes){
 			n.initCDT();
 		}
-		int[][] countMarginal=new int[nodes.size()][];
-		for(int i=0;i<nodes.size();i++){
-			countMarginal[i]=new int[nodes.get(i).getnState()];
+		int[][] countMarginal=new int[nodes.length][];
+		for(int i=0;i<nodes.length;i++){
+			countMarginal[i]=new int[nodes[i].getnState()];
 		}
 		//update for cdt
 		for(Path file : listedPaths){
@@ -385,8 +408,8 @@ public class Network {
 			String temp=null;
 			while((temp=br.readLine())!=null){
 				String[] line=temp.split("[\t,]");
-				int innerIDX=csv2off.get(Integer.parseInt(line[0]));
-				Node n=nodes.get(innerIDX);
+				int innerIDX=csv2off[Integer.parseInt(line[0])];
+				Node n=nodes[innerIDX];
 				int off=Integer.parseInt(line[1]);
 				float[] arr=new float[n.getnState()];
 				int sum=0;
@@ -409,7 +432,7 @@ public class Network {
 		}//end for cdt
 		//update md
 		for(int i=0;i<countMarginal.length;++i){
-			Node n=nodes.get(i);
+			Node n=nodes[i];
 			int sum=0;
 			for(int j=0;j<countMarginal[i].length;++j)
 				sum+=countMarginal[i][j];
@@ -430,7 +453,7 @@ public class Network {
 	 */
 	public void loadStructure(String structureFile, boolean withDistribution, boolean withMarginal) throws Exception{
 		Scanner scn=new Scanner(new BufferedReader(new InputStreamReader(hdfs.open(new Path(structureFile)))));
-		for(int i=0;i<nodes.size();i++){
+		for(int i=0;i<nodes.length;i++){
 			Node n=name2node.get(scn.next());
 			int numParent=scn.nextInt();
 			//marginal:
@@ -620,13 +643,56 @@ public class Network {
 		return predict(given,query);
 	}
 	
+	/**
+	 * Return the nodes between layer "begin" and "end";
+	 * 
+	 * @param begin	inclusive
+	 * @param end	exclusive
+	 * @return	Nodes from low layer to high level
+	 * @throws IndexOutOfBoundsException
+	 */
+	public Node[] getNodesInLayer(int begin, int end) throws IndexOutOfBoundsException{
+		if(0<=begin && begin<end && end<=nodeByLayer.size()){
+			int n=0;
+			for(int i=begin;i<end;i++)
+				n+=nodeByLayer.get(i).size();
+			Node[] res=new Node[n];
+			int p=0;
+			for(int i=begin;i<end;i++){
+				for(Integer off:nodeByLayer.get(i))
+					res[p++]=nodes[off];
+			}
+			return res;
+		}else{
+			throw new IndexOutOfBoundsException();
+		}
+	}
+	
+	/**
+	 * Return the offsets in csv of nodes between layer "begin" and "end";
+	 * 
+	 * @param begin	inclusive
+	 * @param end	exclusive
+	 * @return	Offsets in csv of nodes from low layer to high level
+	 * @throws IndexOutOfBoundsException
+	 */
+	public int[] getCSVoffInLayer(int begin, int end) throws IndexOutOfBoundsException{
+		Node[] nodes=getNodesInLayer(begin,end);
+		int[] res=new int[nodes.length];
+		for(int i=0;i<nodes.length;i++)
+			res[i]=map2csvOffset(nodes[i]);
+		return res;
+	}	
 	
 	//Trivial getter & setter:
-	public ArrayList<Node> getNodes() {
+	public Node[] getNodes() {
 		return nodes;
 	}
+	public int[] getCSVoff() {
+		return off2csv;
+	}
 	public int getnNodes() {
-		return nodes.size();
+		return nodes.length;
 	}
 	public FileSystem getHdfs() {
 		return hdfs;
