@@ -29,18 +29,24 @@ import util.PartFileFilter;
 import Entity.Pair;
 
 public class Network {
-//	private int N;
 	private Node[] nodes;
-	private ArrayList<ArrayList<Integer>> nodeByLayer=new ArrayList<ArrayList<Integer>>();
-	private HashMap<String,Node> name2node=new HashMap<String,Node>();
-	private HashMap<String,Integer> name2off=new HashMap<String,Integer>();
+	private ArrayList<ArrayList<Integer>> nodeByLayer;
+	/*Four kinds of information: node, off, name, csv(offset).
+	Two kernel information: off, csv.
+	node <---- off  <---> csv
+	  |         ^          ^
+	  |         |          |
+	  > name ---+----------|
+	*/
+	private HashMap<String,Node> name2node;
+	private HashMap<String,Integer> name2off;
 	
 	private int[] off2csv;//=new ArrayList<Integer>();
 	private HashMap<String,Integer> name2csv;	//name to csv offset
-//	private ArrayList<Node> csv2node=new ArrayList<Node>();	//csv offset to node
+	
 	private Node[] csv2node;
-//	private ArrayList<Integer> csv2off=new ArrayList<Integer>();	//csv offset to node offset
 	private int[] csv2off;
+	
 	private FileSystem hdfs;
 	
 	
@@ -51,32 +57,46 @@ public class Network {
 		int N=s_n.nextInt();
 		String[] names=new String[N];
 		int[] nStates=new int[N];
-		int[] layers=new int[N];
 		//load name & nState
 		for(int i=0;i<N;i++){
 			String name=s_n.next();
 			names[i]=name;
 			nStates[i]=s_n.nextInt();
-			name2off.put(name,i);
 		}
 		s_n.close();
 		Scanner s_k=new Scanner(hdfs.open(new Path(knowledgeFile)));
 		//load name & layer
+		HashMap<String,Integer> layers=new HashMap<String,Integer>();
 		for(int i=0;i<N;i++){
-			layers[name2off.get(s_k.next())]=s_k.nextInt();
+			layers.put(s_k.next(),s_k.nextInt());
 		}
 		s_k.close();
 		//generate nodes
+		initNodes(N,names,nStates,layers);
+		//set name mapping
+		initNameMapping();
+		//arrange nodes
+		initNodeByLayer();
+	}
+	//initial (generate nodes)
+	private void initNodes(int N, String[] names, int[] nStates, HashMap<String,Integer> layers){
 		nodes=new Node[N];
 		for(int i=0;i<N;i++){
-			Node n=new Node(names[i],nStates[i],layers[i]);
+			String name=names[i];
+			Node n=new Node(name,nStates[i],layers.get(name));
 			nodes[i]=n;
-			name2node.put(names[i], n);
 		}
-		setNodeByLayer();
+	}
+	private void initNameMapping(){
+		name2node=new HashMap<String,Node>();
+		name2off=new HashMap<String,Integer>();
+		for(int i=0;i<nodes.length;++i){
+			name2node.put(nodes[i].getName(), nodes[i]);
+			name2off.put(nodes[i].getName(),i);
+		}
 	}
 	//initial (arrange by layer)
-	private void setNodeByLayer(){	//arrange nodes on each layer
+	private void initNodeByLayer(){	//arrange nodes on each layer
 		if(nodeByLayer==null)
 			nodeByLayer=new ArrayList<ArrayList<Integer>>();
 		else
@@ -98,25 +118,20 @@ public class Network {
 	 * @param copyDistribution	whether to copy the CDT and MD of each node. Matters when copyStructure is true.
 	 * @throws IOException
 	 */
-	@SuppressWarnings("unchecked")
 	public Network(Network net, boolean copyStructure, boolean copyDistribution) throws IOException{
 		this.hdfs=net.hdfs;
-//		N=net.N;
 		//nodes:
-		nodes=new Node[net.nodes.length];
-		HashMap<Node,Node> nodeMapping=new HashMap<Node,Node>();
-		for(int i=0;i<net.nodes.length;i++){
+		int N=net.nodes.length;
+		nodes=new Node[N];
+		HashMap<Node,Node> nodeMapping=new HashMap<Node,Node>();//old node->new node
+		for(int i=0;i<N;i++){
 			Node newn=new Node(net.nodes[i]);
 			nodes[i]=newn;
 			nodeMapping.put(net.nodes[i], newn);
 		}		
-		//name2off:
-		name2off=(HashMap<String, Integer>) net.name2off.clone();
-		//name2node:
-		for(Entry<String,Node> entry:net.name2node.entrySet())
-			name2node.put(entry.getKey(), nodeMapping.get(entry.getValue()));
+		initNameMapping();
 		//nodeByLayer:
-		nodeByLayer=(ArrayList<ArrayList<Integer>>) net.nodeByLayer.clone();
+		initNodeByLayer();
 		//structure(parents):
 		if(copyStructure){
 			for(int i=0;i<nodes.length;i++){
@@ -126,8 +141,8 @@ public class Network {
 					newn.addParent(nodeMapping.get(p));
 				//distributions (CDT and MD)
 				if(copyDistribution){
-					newn.setCDT(oldn.getCDT());
-					newn.setDefaultMD(oldn.getDefaultMD());
+					newn.setCDT(oldn.getCDT().clone());
+					newn.setDefaultMD(oldn.getDefaultMD().clone());
 				}
 			}//nodes
 		}//copyStructure
@@ -137,7 +152,7 @@ public class Network {
 	 * Initialize csv information: set inner parameters, output a csv configuration file. 
 	 * 
 	 * @param csvHeadFile	input csv file with the head line.
-	 * @param csvConfFile	output a csv configuration file used for Hadoop csv procedures
+	 * @param csvConfFile	output a csv configuration file used for Hadoop csv procedures. (null for output nothing)
 	 * @throws IOException
 	 */
 	public void setCSVFormat(String csvHeadFile, String csvConfFile) throws IOException{
@@ -146,6 +161,8 @@ public class Network {
 		if(csvConfFile!=null){
 			System.out.println("Start to output csv configuration file used for hadoop jobs.");
 			generateCSVConfFile(csvConfFile);
+		}else{
+			System.out.println("DO NOT output csv configuration file used for hadoop jobs.");
 		}
 	}
 	//map location in csv file to inner position
@@ -159,19 +176,13 @@ public class Network {
 		off2csv=new int[nodes.length];
 		int p=0;
 		for(String str : line.split(",")){
-			csv2node[p]=name2node.get(str);
+			csv2node[p]=map2node(str);
 			csv2off[p]=name2off.get(str);
 			name2csv.put(str, p);
 			++p;
 		}
 		for(int i=0;i<nodes.length;i++)
 			off2csv[i]=name2csv.get(nodes[i].getName());
-	}
-	public void clearCSVMapping(){
-		csv2node=null;
-		csv2off=null;
-		name2csv=null;
-		off2csv=null;
 	}
 	//generate the csv configuration file
 	public void generateCSVConfFile(String csvConfFile) throws IOException{
@@ -182,6 +193,12 @@ public class Network {
 			pw.print(" ");
 		}
 		pw.close();
+	}
+	public void clearCSVMapping(){
+		csv2node=null;
+		csv2off=null;
+		name2csv=null;
+		off2csv=null;
 	}
 	
 	//inner mappings:
@@ -203,7 +220,8 @@ public class Network {
 	public int map2csvOffset(int innerOffset){
 		return off2csv[innerOffset];
 	}
-	
+
+/*------------------------Learning-----------------------------*/
 	/**
 	 * Greedy learning on given csv files
 	 * 
@@ -232,17 +250,19 @@ public class Network {
 			ArrayList<Integer> thisLayer=nodeByLayer.get(layer);
 			param.setPossible(possibleParentsInCSV);
 			for(int i=0;i<thisLayer.size();i++){
-				System.out.println("Processing node "+i+"...");
+				System.out.println("Processing node "+i+" ("+nodes[i].getName()+") ...");
 				greedyLearningOne(nodes[thisLayer.get(i)], param, baseOutput, threshold);
-				System.out.println("Finish processing node "+i+".");
+				System.out.println("Finish processing node "+i+" ("+nodes[i].getName()+").");
 			}
 			for(int i : thisLayer)
 				possibleParentsInCSV.add(map2csvOffset(i));
 			System.out.println("Finish processing layer "+layer+".");
 		}
 	}
-	private void greedyLearningOne(Node specifiedNode, CSVFamScoreParam p, String baseOutput,
-			double threshold) throws IOException{// throws Exception{
+	private void greedyLearningOne(Node specifiedNode, CSVFamScoreParam param, String baseOutput,
+			double threshold) throws IOException{
+		//replicate its own CSVFamScoreParam
+		CSVFamScoreParam p=param.clone();
 		int specified=map2csvOffset(specifiedNode);
 		p.setSpecified(specified);
 		baseOutput=baseOutput+"/famscore_"+specified;
@@ -276,11 +296,17 @@ public class Network {
 			current=famRes.second.doubleValue();
 			int parentInCSV=famRes.first.intValue();
 			int parentInHBN=csv2off[parentInCSV];
-			p.movePossible2Given(parentInCSV);
-			specifiedNode.addParent(nodes[parentInHBN]);
-			//show status
-			System.out.println("In loop "+iteration+", parent "+parentInCSV+" is choosen.");
-			System.out.println("FamScore improvement is "+ (current-last));
+			System.out.println("In loop "+iteration+", parent "+parentInCSV
+					+" ("+map2nodeFromCSV(parentInCSV).getName()+") is the best. "
+					+"FamScore improvement is "+ (current-last));
+			if(current-last>=threshold){
+				p.movePossible2Given(parentInCSV);
+				specifiedNode.addParent(nodes[parentInHBN]);
+				//show status
+				System.out.println("Accept.");
+			}else{
+				System.out.println("Reject.");
+			}
 		}
 	}
 	
@@ -300,17 +326,11 @@ public class Network {
 		for(int layer=1;layer<nodeByLayer.size();layer++){
 			ArrayList<Integer> thisLayer=nodeByLayer.get(layer);
 			param.setPossible(possibleParentsInCSV);
-//			greedyLearningOneThread[] list=new greedyLearningOneThread[thisLayer.size()];
 			for(int i=0;i<thisLayer.size();i++){
 				greedyLearningOneThread t=new greedyLearningOneThread(
 						nodes[thisLayer.get(i)], param, baseOutput, threshold);
 				executorService.submit(t);
-//				list[i]=t;
-//				t.start();
 			}
-//			for(greedyLearningOneThread n:list){
-//				n.join();
-//			}
 			for(int i : thisLayer)
 				possibleParentsInCSV.add(map2csvOffset(i));
 		}
@@ -342,7 +362,6 @@ public class Network {
 			}
 		}
 	}
-	
 
 	//find the node offset in csv file with largest FamScore in Hadoop output folder "output"
 	private Pair<Integer,Double> findLargestFamScore(String output) throws IOException{
@@ -364,6 +383,7 @@ public class Network {
 		return new Pair<Integer,Double>(res,largest);
 	}
 	
+/*------------------------Distribution-----------------------------*/
 	/**
 	 * calculate conditional distribution table with given data and given edges.
 	 * 
@@ -443,6 +463,7 @@ public class Network {
 		}//end for md
 	}
 	
+/*------------------------Structure-----------------------------*/	
 	/**
 	 * load structures from regular file with given parameters
 	 * 
@@ -454,7 +475,7 @@ public class Network {
 	public void loadStructure(String structureFile, boolean withDistribution, boolean withMarginal) throws Exception{
 		Scanner scn=new Scanner(new BufferedReader(new InputStreamReader(hdfs.open(new Path(structureFile)))));
 		for(int i=0;i<nodes.length;i++){
-			Node n=name2node.get(scn.next());
+			Node n=map2node(scn.next());
 			int numParent=scn.nextInt();
 			//marginal:
 			if(withMarginal){
@@ -468,7 +489,7 @@ public class Network {
 			//parents:
 			for(int j=0;j<numParent;j++){
 				String parent=scn.next();
-				n.addParent(name2node.get(parent));
+				n.addParent(map2node(parent));
 			}
 			//cdt:
 			if(withDistribution){
@@ -521,13 +542,13 @@ public class Network {
 		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));
 		for(Node n: nodes){
 			ArrayList<Node> parents=n.getParents();
-			pw.println(name2csv.get(n.getName())+" "+parents.size());
+			pw.println(map2csvOffset(n.getName())+" "+parents.size());
 			if(parents.size()==0)
 				continue;
-			pw.print(name2csv.get(parents.get(0).getName()));
+			pw.print(map2csvOffset(parents.get(0).getName()));
 			for(int i=1;i<parents.size();i++){
 				pw.print(" ");
-				pw.print(name2csv.get(parents.get(i).getName()));
+				pw.print(map2csvOffset(parents.get(i).getName()));
 			}
 			pw.print("\n");
 		}
@@ -585,7 +606,7 @@ public class Network {
 		pw.close();
 	}
 	
-	
+/*------------------------Prediction-----------------------------*/	
 	/**
 	 * Predict the queried nodes' states based on given states.
 	 * 
@@ -616,12 +637,12 @@ public class Network {
 			return res;
 		//set given md
 		for(Entry<String,Integer> entry : given.entrySet()){
-			Node n=name2node.get(entry.getKey());
+			Node n=map2node(entry.getKey());
 			n.setCacheMD(entry.getValue().intValue());
 		}
 		//get queried md
 		for(String name : query){
-			Node n=name2node.get(name);
+			Node n=map2node(name);
 			n.setCacheMD(null);
 			res.put(name, n.getCacheMD());
 		}
@@ -642,7 +663,8 @@ public class Network {
 		}
 		return predict(given,query);
 	}
-	
+
+/*------------------------Other-----------------------------*/
 	/**
 	 * Return the nodes between layer "begin" and "end";
 	 * 
