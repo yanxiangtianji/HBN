@@ -21,24 +21,18 @@ public class CSVCDParam {
 	public CSVCDParam(String[] args) throws Exception{
 		int with_conf=0;
 		for(int i=0;i<args.length;++i){
-			switch(args[i]){
-			case "-csvconf":
+			if(args[i]=="-csvconf"){
 				csvConfFile=args[++i];
 				with_conf|=1;
-				break;
-			case "-structure":
+			}else if(args[i]=="-structure"){
 				briefStructureForCSVFile=args[++i];
 				with_conf|=2;
-				break;
-			case "-input":
-				input=args[++i];
+			}else if(args[i]=="-input"){
+					input=args[++i];
 				with_conf|=4;
-				break;
-			case "-output":
+			}else if(args[i]=="-output"){
 				output=args[++i];
 				with_conf|=8;
-				break;
-			default:
 			}
 		}
 		if(with_conf!=15){
