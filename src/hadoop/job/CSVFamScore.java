@@ -142,7 +142,7 @@ public class CSVFamScore {
 				res[p.getV1()] += p.getV2();
 				sum += p.getV2();
 			}
-			double score = Gamma.logGamma(1.0 + sum);
+			double score = -Gamma.logGamma(1.0 + sum);
 			for (int i : res) {
 				if(i==0)
 					continue;
@@ -174,7 +174,7 @@ public class CSVFamScore {
 		configure(param);
 	}	
 	public void configure(CSVFamScoreParam param){
-		this.param=param.clone();
+		this.param=param;
 	}
 	private void setConfHBN(JobConf conf) throws IOException {
 		FileSystem hdfs = FileSystem.get(conf);
