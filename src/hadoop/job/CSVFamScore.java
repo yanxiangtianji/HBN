@@ -174,7 +174,7 @@ public class CSVFamScore {
 		configure(param);
 	}	
 	public void configure(CSVFamScoreParam param){
-		this.param=param;
+		this.param=param.clone();
 	}
 	private void setConfHBN(JobConf conf) throws IOException {
 		FileSystem hdfs = FileSystem.get(conf);
