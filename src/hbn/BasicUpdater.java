@@ -97,7 +97,7 @@ public class BasicUpdater {
 		Network net=new Network(hdfs,nodeFile,knowledgeFile);
 		net.loadStructure(oldModelFile, true, true);
 		incrementalUpdate(net,incrementModelFile);
-		net.outputStructure(newModelFile, true);
+		net.outputStructure(false,newModelFile, true);
 	}
 
 	/**

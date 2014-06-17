@@ -38,7 +38,7 @@ public class IncrementalUpdate {
 		
 		BasicUpdater updater=new BasicUpdater(3.0f);
 		updater.incrementalUpdate(net, properties.get("incrStructureFile"));
-		net.outputStructure(properties.get("newStructureFile"), true);
+		net.outputStructure(false, properties.get("newStructureFile"), true);
 		
 		System.out.println("Finished.");
 	}
