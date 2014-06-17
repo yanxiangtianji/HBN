@@ -422,12 +422,13 @@ public class Network {
 		for(int i=0;i<nodes.length;i++){
 			countMarginal[i]=new int[nodes[i].getnState()];
 		}
-		//update for cdt
+		//update for cdt using all hadoop output files
 		for(Path file : listedPaths){
 			BufferedReader br=new BufferedReader(new InputStreamReader(hdfs.open(file)));
 			String temp=null;
 			while((temp=br.readLine())!=null){
 				String[] line=temp.split("[\t,]");
+				//node ID(csv), parent's code, frequency... 
 				int innerIDX=csv2off[Integer.parseInt(line[0])];
 				Node n=nodes[innerIDX];
 				int off=Integer.parseInt(line[1]);
@@ -467,45 +468,61 @@ public class Network {
 	/**
 	 * load structures from regular file with given parameters
 	 * 
-	 * @param structureFile
+	 * @param structurePath	When it is a file, read the structure from the file.
+	 *  When it is a directory, read the structures from all the files.
 	 * @param withDistribution
 	 * @param withMarginal
 	 * @throws Exception 
 	 */
-	public void loadStructure(String structureFile, boolean withDistribution, boolean withMarginal) throws Exception{
-		Scanner scn=new Scanner(new BufferedReader(new InputStreamReader(hdfs.open(new Path(structureFile)))));
-		for(int i=0;i<nodes.length;i++){
-			Node n=map2node(scn.next());
-			int numParent=scn.nextInt();
-			//marginal:
-			if(withMarginal){
-				float[] md=new float[n.getnState()];
-				for(int j=0;j<n.getnState();++j)
-					md[j]=scn.nextFloat();
-				n.setDefaultMD(md);
+	public void loadStructure(String structurePath, boolean withDistribution, boolean withMarginal) throws Exception{
+		Path p=new Path(structurePath);
+		if(hdfs.isFile(p)){
+			Scanner scn=new Scanner(new BufferedReader(new InputStreamReader(hdfs.open(p))));
+			for(int i=0;i<nodes.length;i++){
+				loadStructureNode(scn,withDistribution,withMarginal);
 			}
-			if(numParent==0)
-				continue;
-			//parents:
-			for(int j=0;j<numParent;j++){
-				String parent=scn.next();
-				n.addParent(map2node(parent));
-			}
-			//cdt:
-			if(withDistribution){
-				n.initCDT();
-				int nCDT=scn.nextInt();
-				while(nCDT-->0){
-					int offset=scn.nextInt();
-					float[] cpd=new float[n.getnState()];
-					for(int j=0;j<n.getnState();++j)
-						cpd[j]=scn.nextFloat();
-					int sum=scn.nextInt();
-					n.setCDT(offset, cpd, sum);
-				}
+			scn.close();
+		}else{
+			Path[] listedPaths=FileUtil.stat2Paths(hdfs.listStatus(p));
+			for(Path file : listedPaths){
+				Scanner scn=new Scanner(new BufferedReader(new InputStreamReader(hdfs.open(file))));
+				loadStructureNode(scn,withDistribution,withMarginal);
+				scn.close();			
 			}
 		}
-		scn.close();
+	}
+	private void loadStructureNode(Scanner scn, boolean withDistribution, boolean withMarginal) throws Exception{
+		Node n=map2node(scn.next());
+		int numParent=scn.nextInt();
+		//marginal:
+		if(withMarginal){
+			float[] md=new float[n.getnState()];
+			for(int j=0;j<n.getnState();++j)
+				md[j]=scn.nextFloat();
+			n.setDefaultMD(md);
+			int sum=scn.nextInt();
+			n.setOccurrenceAll(sum);
+		}
+		if(numParent==0)
+			return;
+		//parents:
+		for(int j=0;j<numParent;j++){
+			String parent=scn.next();
+			n.addParent(map2node(parent));
+		}
+		//cdt:
+		if(withDistribution){
+			n.initCDT();
+			int nCDT=scn.nextInt();
+			while(nCDT-->0){
+				int offset=scn.nextInt();
+				float[] cpd=new float[n.getnState()];
+				for(int j=0;j<n.getnState();++j)
+					cpd[j]=scn.nextFloat();
+				int sum=scn.nextInt();
+				n.setCDT(offset, cpd, sum);
+			}
+		}
 	}
 	
 	/**
@@ -554,56 +571,103 @@ public class Network {
 		}
 		pw.close();
 	}
+	
 	/**
-	 * Output complete structure (with conditional distribution table (CDT)) using node name.
+	 * Output complete structure (with parents and conditional distribution table (CDT)) using node name.
 	 * 
-	 * @param structureFile
-	 * @param withMarginal	whether to output the marginal distribution of each node before the parent information
+	 * @param isMerged	Whether to output the whole structure into one file
+	 * @param structurePath	When output into one file, this is the filename.
+	 *  When output into separated files, this is the folder name.
+	 * @param withMarginal	Whether to output the marginal distribution of each node before the parent information
 	 * @throws IOException
 	 */
-	public void outputStructure(String structureFile, boolean withMarginal) throws IOException{
+	public void outputStructure(boolean isMerged, String structurePath, boolean withMarginal) throws IOException{
+		if(isMerged){
+			outputStructureMerged(structurePath, withMarginal);
+		}else{
+			outputStructureSeparated(structurePath, withMarginal);
+		}
+	}
+	
+	/**
+	 * Output all the structures into one file.
+	 * 
+	 * @param structureFile
+	 * @param withMarginal
+	 * @throws IOException
+	 */
+	public void outputStructureMerged(String structureFile, boolean withMarginal) throws IOException{
 		System.out.println("Start to output full structure via node name, "
 				+(withMarginal?"with":"with out")+" marginal distribution.");
 		PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(hdfs.create(new Path(structureFile)))));
 		for(Node n: nodes){
-			ArrayList<Node> parents=n.getParents();
-			pw.println(n.getName()+" "+parents.size());
-			//marginal distribution:
-			if(withMarginal){
-				for(float f : n.getDefaultMD()){
-					pw.print(f);
-					pw.print(" ");
-				}
-				pw.print(n.getOccurrenceAll());
-				pw.print("\n");
-			}
-			//parents:
-			if(parents.size()==0)	//no parents
-				continue;
-			pw.print(parents.get(0).getName());
-			for(int i=1;i<parents.size();i++){
-				pw.print(" ");
-				pw.print(parents.get(i).getName());
-			}
-			pw.print("\n");
-			//output distribution:
-			int nCDT=n.getnCDT();
-			pw.println(nCDT);
-			for(int i=0;i<nCDT;++i){
-				float[] md=n.getCDT(i);
-				if(md==null)	//skip those entry without a cpd
-					continue;
-				pw.print(i);
-				for(float f : md){
-					pw.print(" ");
-					pw.print(f);
-				}
-				pw.print(" ");
-				pw.print(n.getOccurrenceCDT(i));
-				pw.print("\n");
-			}
+			outputStructureNode(pw,n,withMarginal);
 		}
 		pw.close();
+	}
+	
+	/**
+	 * Output structure of each node into each file.
+	 * 
+	 * @param structureFolder
+	 * @param withMarginal
+	 * @throws IOException
+	 */
+	public void outputStructureSeparated(String structureFolder, boolean withMarginal) throws IOException{
+		System.out.println("Start to output full structure via node name, "
+				+(withMarginal?"with":"with out")+" marginal distribution.");
+		Path folder=new Path(structureFolder);
+		if(!hdfs.exists(folder)){
+			hdfs.mkdirs(folder);
+		}else{
+			hdfs.delete(folder, true);
+		}
+		for(Node n: nodes){
+			PrintWriter pw=new PrintWriter(new BufferedWriter(new OutputStreamWriter(
+					hdfs.create(new Path(structureFolder+n.getName()+".txt")))));
+			outputStructureNode(pw,n,withMarginal);
+			pw.close();
+		}
+	}
+	
+	private void outputStructureNode(PrintWriter pw, Node n, boolean withMarginal){
+		ArrayList<Node> parents=n.getParents();
+		pw.println(n.getName()+" "+parents.size());
+		//marginal distribution:
+		if(withMarginal){
+			for(float f : n.getDefaultMD()){
+				pw.print(f);
+				pw.print(" ");
+			}
+			pw.print(n.getOccurrenceAll());
+			pw.print("\n");
+		}
+		//parents:
+		if(parents.size()==0)	//no parents
+			return;
+		pw.print(parents.get(0).getName());
+		for(int i=1;i<parents.size();i++){
+			pw.print(" ");
+			pw.print(parents.get(i).getName());
+		}
+		pw.print("\n");
+		//output distribution:
+		int nCDT=n.getnCDT();
+		pw.println(nCDT);
+		for(int i=0;i<nCDT;++i){
+			int occ=n.getOccurrenceCDT(i);
+			if(occ==0)	//skip those entry without a cpd
+				continue;
+			float[] md=n.getCDT(i);
+			pw.print(i);
+			for(float f : md){
+				pw.print(" ");
+				pw.print(f);
+			}
+			pw.print(" ");
+			pw.print(occ);
+			pw.print("\n");
+		}
 	}
 	
 /*------------------------Prediction-----------------------------*/	
